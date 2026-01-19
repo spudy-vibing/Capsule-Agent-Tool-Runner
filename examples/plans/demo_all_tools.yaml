@@ -1,0 +1,28 @@
+version: "1.0"
+name: "Demo all tools"
+description: "Demonstrates all four built-in tools: fs.read, fs.write, http.get, shell.run"
+steps:
+  # Filesystem read
+  - tool: fs.read
+    name: "Read README"
+    args:
+      path: "./README.md"
+
+  # Shell command
+  - tool: shell.run
+    name: "Echo greeting"
+    args:
+      cmd: ["echo", "Hello from Capsule shell tool!"]
+
+  # HTTP request
+  - tool: http.get
+    name: "Fetch from httpbin"
+    args:
+      url: "https://httpbin.org/get"
+
+  # Filesystem write
+  - tool: fs.write
+    name: "Write output"
+    args:
+      path: "./examples/workspace/demo_output.txt"
+      content: "Demo completed successfully!\n"

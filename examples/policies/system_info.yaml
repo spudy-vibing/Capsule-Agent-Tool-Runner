@@ -1,0 +1,39 @@
+# Policy for system_info.yaml plan
+# Allows read-only system information commands
+
+boundary: deny_by_default
+global_timeout_seconds: 60
+max_calls_per_tool: 10
+
+tools:
+  fs.read:
+    allow_paths: []      # No file reading
+    max_size_bytes: 0
+
+  fs.write:
+    allow_paths: []      # No file writing
+    max_size_bytes: 0
+
+  http.get:
+    allow_domains: []    # No HTTP requests
+    deny_private_ips: true
+    timeout_seconds: 30
+
+  shell.run:
+    allow_executables:
+      - "date"
+      - "whoami"
+      - "pwd"
+      - "ls"
+      - "df"
+      - "uname"
+      - "hostname"
+      - "uptime"
+    deny_tokens:
+      - "sudo"
+      - "su"
+      - "rm"
+      - ">"              # No output redirection
+      - "|"              # These are safe due to list-form, but explicit
+    timeout_seconds: 10
+    max_output_bytes: 102400

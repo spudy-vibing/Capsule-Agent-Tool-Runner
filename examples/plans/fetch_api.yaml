@@ -1,0 +1,11 @@
+version: "1.0"
+name: "Fetch GitHub user"
+description: "Demonstrates http.get tool by fetching a GitHub user profile"
+steps:
+  - tool: http.get
+    name: "Fetch octocat profile"
+    args:
+      url: "https://api.github.com/users/octocat"
+      headers:
+        Accept: "application/json"
+        User-Agent: "Capsule/0.1.0"

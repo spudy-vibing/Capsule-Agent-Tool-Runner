@@ -1,0 +1,51 @@
+# Policy for git workflow automation
+# Allows git commands and file operations within the project
+
+boundary: deny_by_default
+global_timeout_seconds: 300
+max_calls_per_tool: 100
+
+tools:
+  fs.read:
+    allow_paths:
+      - "./**"
+    deny_paths:
+      - "./.git/objects/**"  # Don't read git object files directly
+      - "**/.env"
+      - "**/secrets/**"
+    max_size_bytes: 10485760  # 10 MB
+    allow_hidden: true        # Allow reading .gitignore, etc.
+
+  fs.write:
+    allow_paths:
+      - "./**"
+    deny_paths:
+      - "./.git/**"          # Don't write to git internals
+      - "**/.env"
+      - "**/node_modules/**"
+    max_size_bytes: 1048576  # 1 MB
+    allow_hidden: false
+
+  http.get:
+    allow_domains: []        # No HTTP requests
+    deny_private_ips: true
+    timeout_seconds: 30
+
+  shell.run:
+    allow_executables:
+      - "git"
+      - "echo"
+      - "cat"
+      - "ls"
+      - "date"
+      - "pwd"
+      - "whoami"
+    deny_tokens:
+      - "sudo"
+      - "su"
+      - "rm -rf"
+      - "--force"
+      - "push --force"
+      - "reset --hard"
+    timeout_seconds: 60
+    max_output_bytes: 1048576

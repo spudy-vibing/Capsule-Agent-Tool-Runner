@@ -1,0 +1,33 @@
+# Policy for API access scenarios
+# Allows HTTP requests to specific APIs, read-only filesystem access
+
+boundary: deny_by_default
+global_timeout_seconds: 120
+max_calls_per_tool: 50
+
+tools:
+  fs.read:
+    allow_paths:
+      - "./**"           # Current directory and subdirectories
+    deny_paths:
+      - "./.git/**"      # No reading git internals
+      - "./.env"         # No reading secrets
+    max_size_bytes: 1048576  # 1 MB
+    allow_hidden: false
+
+  fs.write:
+    allow_paths: []      # No writing allowed
+    max_size_bytes: 0
+
+  http.get:
+    allow_domains:
+      - "api.github.com"
+      - "httpbin.org"
+      - "jsonplaceholder.typicode.com"
+    deny_private_ips: true
+    max_response_bytes: 5242880  # 5 MB
+    timeout_seconds: 30
+
+  shell.run:
+    allow_executables: []  # No shell commands allowed
+    timeout_seconds: 60

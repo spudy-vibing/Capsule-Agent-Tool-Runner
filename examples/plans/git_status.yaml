@@ -1,0 +1,18 @@
+version: "1.0"
+name: "Check git status"
+description: "Demonstrates shell.run tool with git commands"
+steps:
+  - tool: shell.run
+    name: "Get current branch"
+    args:
+      cmd: ["git", "branch", "--show-current"]
+
+  - tool: shell.run
+    name: "Show git status"
+    args:
+      cmd: ["git", "status", "--short"]
+
+  - tool: shell.run
+    name: "Recent commits"
+    args:
+      cmd: ["git", "log", "--oneline", "-5"]

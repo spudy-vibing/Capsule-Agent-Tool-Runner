@@ -1,0 +1,28 @@
+version: "1.0"
+name: "System information"
+description: "Gather basic system information using shell commands"
+steps:
+  - tool: shell.run
+    name: "Current date"
+    args:
+      cmd: ["date"]
+
+  - tool: shell.run
+    name: "Current user"
+    args:
+      cmd: ["whoami"]
+
+  - tool: shell.run
+    name: "Current directory"
+    args:
+      cmd: ["pwd"]
+
+  - tool: shell.run
+    name: "List files"
+    args:
+      cmd: ["ls", "-la"]
+
+  - tool: shell.run
+    name: "Disk usage"
+    args:
+      cmd: ["df", "-h"]
