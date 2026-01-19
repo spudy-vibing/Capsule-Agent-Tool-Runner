@@ -1,0 +1,25 @@
+# Copy a file by reading and writing
+# Note: This is a simple demonstration - content is static
+
+version: "1.0"
+name: "copy-file"
+description: "Read source file and write to destination"
+
+steps:
+  - tool: fs.read
+    id: read-source
+    name: "Read source file"
+    args:
+      path: "./README.md"
+
+  - tool: fs.write
+    id: write-copy
+    name: "Write copy"
+    args:
+      path: "./examples/workspace/README_copy.md"
+      content: |
+        # This is a copy of README.md
+
+        (Copied by Capsule fs.write tool)
+
+        See the original file for full contents.

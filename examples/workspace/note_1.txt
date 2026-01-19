@@ -1,0 +1,5 @@
+Note 1: Getting Started
+=======================
+
+Capsule is a tool runner that executes
+plans under strict policy controls.

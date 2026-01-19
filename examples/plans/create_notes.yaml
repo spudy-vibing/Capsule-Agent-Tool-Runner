@@ -1,0 +1,56 @@
+# Create multiple note files
+# Demonstrates writing several files in sequence
+
+version: "1.0"
+name: "create-notes"
+description: "Create a set of note files in the workspace"
+
+steps:
+  - tool: fs.write
+    id: note-1
+    name: "Create first note"
+    args:
+      path: "./examples/workspace/note_1.txt"
+      content: |
+        Note 1: Getting Started
+        =======================
+
+        Capsule is a tool runner that executes
+        plans under strict policy controls.
+
+  - tool: fs.write
+    id: note-2
+    name: "Create second note"
+    args:
+      path: "./examples/workspace/note_2.txt"
+      content: |
+        Note 2: Key Features
+        ====================
+
+        - Deny-by-default security
+        - Full audit logging
+        - SQLite storage
+        - Deterministic replay
+
+  - tool: fs.write
+    id: note-3
+    name: "Create third note"
+    args:
+      path: "./examples/workspace/note_3.txt"
+      content: |
+        Note 3: Supported Tools
+        =======================
+
+        Currently implemented:
+        - fs.read: Read files
+        - fs.write: Write files
+
+        Coming soon:
+        - shell.run: Execute commands
+        - http.get: Fetch URLs
+
+  - tool: fs.read
+    id: verify
+    name: "Verify first note was created"
+    args:
+      path: "./examples/workspace/note_1.txt"

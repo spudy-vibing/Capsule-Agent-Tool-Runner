@@ -1,0 +1,20 @@
+# Plan that fetches data from the network
+# Requires http.get to be allowed in policy
+
+version: "1.0"
+name: "network-fetch"
+description: "Fetch data from an API and save locally"
+
+steps:
+  - tool: http.get
+    id: fetch-data
+    name: "Fetch API data"
+    args:
+      url: "https://api.github.com/zen"
+
+  - tool: fs.write
+    id: save-data
+    name: "Save fetched data"
+    args:
+      path: "./api_response.txt"
+      content: "Response saved"

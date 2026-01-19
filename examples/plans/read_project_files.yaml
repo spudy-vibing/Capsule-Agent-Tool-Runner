@@ -1,0 +1,25 @@
+# Read multiple project files
+# Demonstrates reading several files in sequence
+
+version: "1.0"
+name: "read-project-files"
+description: "Read key project files to understand the codebase"
+
+steps:
+  - tool: fs.read
+    id: read-readme
+    name: "Read README"
+    args:
+      path: "./README.md"
+
+  - tool: fs.read
+    id: read-pyproject
+    name: "Read pyproject.toml"
+    args:
+      path: "./pyproject.toml"
+
+  - tool: fs.read
+    id: read-init
+    name: "Read package init"
+    args:
+      path: "./src/capsule/__init__.py"

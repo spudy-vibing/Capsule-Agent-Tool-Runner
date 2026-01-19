@@ -1,0 +1,52 @@
+# Strict policy - minimal permissions
+# Good for untrusted plans or production environments
+
+boundary: deny_by_default
+
+# Global limits
+global_timeout_seconds: 60
+max_calls_per_tool: 10
+
+tools:
+  # Only allow reading from current directory, small files
+  fs.read:
+    allow_paths:
+      - "./*.md"
+      - "./*.txt"
+      - "./*.json"
+    deny_paths:
+      - "./.env"
+      - "./.env.*"
+      - "./secrets.*"
+    max_size_bytes: 102400  # 100 KB
+    allow_hidden: false
+
+  # No filesystem writes allowed
+  fs.write:
+    allow_paths: []
+    max_size_bytes: 0
+    allow_hidden: false
+
+  # No network access
+  http.get:
+    allow_domains: []
+    deny_private_ips: true
+    max_response_bytes: 0
+    timeout_seconds: 1
+
+  # Only safe, read-only commands
+  shell.run:
+    allow_executables:
+      - "echo"
+      - "date"
+      - "pwd"
+    deny_tokens:
+      - "sudo"
+      - "su"
+      - "rm"
+      - ">"
+      - "|"
+      - ";"
+      - "&"
+    timeout_seconds: 10
+    max_output_bytes: 10240  # 10 KB

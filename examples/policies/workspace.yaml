@@ -1,0 +1,39 @@
+# Workspace policy - for running examples
+# Allows reading most project files and writing to workspace
+
+boundary: deny_by_default
+
+global_timeout_seconds: 60
+max_calls_per_tool: 20
+
+tools:
+  fs.read:
+    allow_paths:
+      - "./**"
+    deny_paths:
+      - "./.env"
+      - "./.env.*"
+      - "**/.git/**"
+    max_size_bytes: 1048576  # 1 MB
+    allow_hidden: false
+
+  fs.write:
+    allow_paths:
+      - "./examples/workspace/**"
+    deny_paths: []
+    max_size_bytes: 102400  # 100 KB
+    allow_hidden: false
+
+  http.get:
+    allow_domains: []
+    deny_private_ips: true
+    max_response_bytes: 0  # Disabled
+    timeout_seconds: 30
+
+  shell.run:
+    allow_executables: []  # No executables allowed
+    deny_tokens:
+      - "sudo"
+      - "rm -rf"
+    timeout_seconds: 30
+    max_output_bytes: 1024

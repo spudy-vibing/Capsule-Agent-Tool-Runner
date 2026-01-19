@@ -1,0 +1,10 @@
+Note 3: Supported Tools
+=======================
+
+Currently implemented:
+- fs.read: Read files
+- fs.write: Write files
+
+Coming soon:
+- shell.run: Execute commands
+- http.get: Fetch URLs

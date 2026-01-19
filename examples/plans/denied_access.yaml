@@ -1,0 +1,28 @@
+# Plan that attempts to access denied paths
+# Use this to test policy enforcement
+
+version: "1.0"
+name: "denied-access-demo"
+description: "Demonstrate policy denials for blocked paths"
+
+steps:
+  # This will succeed
+  - tool: fs.read
+    id: read-allowed
+    name: "Read allowed file"
+    args:
+      path: "./README.md"
+
+  # This will be DENIED (hidden file)
+  - tool: fs.read
+    id: read-hidden
+    name: "Read hidden file (should be denied)"
+    args:
+      path: "./.gitignore"
+
+  # This would also be denied (outside working dir)
+  - tool: fs.read
+    id: read-system
+    name: "Read system file (should be denied)"
+    args:
+      path: "/etc/passwd"

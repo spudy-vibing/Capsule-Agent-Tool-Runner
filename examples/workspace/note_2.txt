@@ -1,0 +1,7 @@
+Note 2: Key Features
+====================
+
+- Deny-by-default security
+- Full audit logging
+- SQLite storage
+- Deterministic replay

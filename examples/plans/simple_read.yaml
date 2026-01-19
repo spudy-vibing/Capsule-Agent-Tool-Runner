@@ -1,0 +1,13 @@
+# Simple plan that reads a single file
+# Use this to test basic fs.read functionality
+
+version: "1.0"
+name: "simple-read"
+description: "Read the README file"
+
+steps:
+  - tool: fs.read
+    id: read-readme
+    name: "Read README"
+    args:
+      path: "./README.md"

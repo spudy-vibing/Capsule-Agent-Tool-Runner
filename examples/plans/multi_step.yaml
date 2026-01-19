@@ -1,0 +1,32 @@
+# Multi-step plan demonstrating various tools
+# Shows how to chain multiple operations
+
+version: "1.0"
+name: "multi-step-demo"
+description: "Demonstrate multiple tool calls in sequence"
+
+steps:
+  - tool: fs.read
+    id: step-1
+    name: "Read configuration"
+    args:
+      path: "./config.json"
+
+  - tool: shell.run
+    id: step-2
+    name: "Check git status"
+    args:
+      cmd: ["git", "status", "--short"]
+
+  - tool: fs.write
+    id: step-3
+    name: "Write output"
+    args:
+      path: "./output.txt"
+      content: "Processing complete"
+
+  - tool: shell.run
+    id: step-4
+    name: "Echo completion"
+    args:
+      cmd: ["echo", "Done!"]
