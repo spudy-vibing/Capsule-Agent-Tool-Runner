@@ -27,7 +27,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from capsule.errors import PolicyDeniedError, ToolExecutionError, ToolNotFoundError
+from capsule.errors import (
+    CapsuleError,
+    PolicyDeniedError,
+    ToolExecutionError,
+    ToolNotFoundError,
+    ToolTimeoutError,
+)
 from capsule.policy import PolicyEngine
 from capsule.schema import (
     Plan,
@@ -173,6 +179,7 @@ class Engine:
             RunResult with execution summary
         """
         start_time = datetime.now(UTC)
+        global_timeout_seconds = policy.global_timeout_seconds
 
         # Create policy engine
         policy_engine = PolicyEngine(policy)
@@ -185,8 +192,29 @@ class Engine:
         completed = 0
         denied = 0
         failed = 0
+        timed_out = False
 
         for step_index, step in enumerate(plan.steps):
+            # Check global timeout before each step
+            elapsed_seconds = (datetime.now(UTC) - start_time).total_seconds()
+            if elapsed_seconds >= global_timeout_seconds:
+                timed_out = True
+                # Record a timeout result for this step
+                timeout_result = StepResult(
+                    step_index=step_index,
+                    tool_name=step.tool,
+                    args=step.args,
+                    status=ToolCallStatus.ERROR,
+                    error=f"Global timeout exceeded: {elapsed_seconds:.1f}s >= {global_timeout_seconds}s",
+                    policy_decision=PolicyDecision.deny(
+                        f"Global timeout exceeded after {elapsed_seconds:.1f}s",
+                        rule="global_timeout_seconds",
+                    ),
+                )
+                steps.append(timeout_result)
+                failed += 1
+                break
+
             step_result = self._execute_step(
                 run_id=run_id,
                 step_index=step_index,
@@ -209,7 +237,7 @@ class Engine:
                     break
 
         # Determine final status
-        if denied > 0 or failed > 0:
+        if denied > 0 or failed > 0 or timed_out:
             final_status = RunStatus.FAILED
         else:
             final_status = RunStatus.COMPLETED

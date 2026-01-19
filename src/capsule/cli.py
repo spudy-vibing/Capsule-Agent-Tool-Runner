@@ -17,6 +17,9 @@ Architecture Note:
     to be used programmatically without the CLI.
 """
 
+import json
+import sys
+import traceback
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -25,7 +28,7 @@ from rich.console import Console
 from rich.table import Table
 
 from capsule import __version__
-from capsule.engine import Engine
+from capsule.engine import Engine, RunResult
 from capsule.schema import RunStatus, ToolCallStatus, load_plan, load_policy
 
 # Initialize Typer app with metadata
@@ -107,6 +110,20 @@ def run(
             help="Enable verbose output for debugging.",
         ),
     ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Enable debug mode with full error tracebacks.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output results in JSON format.",
+        ),
+    ] = False,
     no_fail_fast: Annotated[
         bool,
         typer.Option(
@@ -129,38 +146,62 @@ def run(
     # Load plan and policy
     try:
         plan = load_plan(plan_path)
-        if verbose:
+        if verbose and not json_output:
             console.print(f"[dim]Loaded plan: {plan_path}[/dim]")
             console.print(f"[dim]  Steps: {len(plan.steps)}[/dim]")
     except Exception as e:
-        console.print(f"[red]Error loading plan: {e}[/red]")
+        if json_output:
+            _output_json_error("plan_load_error", str(e), debug)
+        else:
+            console.print(f"[red]Error loading plan: {e}[/red]")
+            if debug:
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise typer.Exit(code=1)
 
     try:
         policy = load_policy(policy_path)
-        if verbose:
+        if verbose and not json_output:
             console.print(f"[dim]Loaded policy: {policy_path}[/dim]")
     except Exception as e:
-        console.print(f"[red]Error loading policy: {e}[/red]")
+        if json_output:
+            _output_json_error("policy_load_error", str(e), debug)
+        else:
+            console.print(f"[red]Error loading policy: {e}[/red]")
+            if debug:
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise typer.Exit(code=1)
 
     # Execute the plan
-    with Engine(db_path=db_path, working_dir=Path.cwd()) as engine:
-        if verbose:
-            console.print(f"[dim]Using database: {db_path}[/dim]")
-            console.print("[dim]Executing plan...[/dim]")
-            console.print()
+    try:
+        with Engine(db_path=db_path, working_dir=Path.cwd()) as engine:
+            if verbose and not json_output:
+                console.print(f"[dim]Using database: {db_path}[/dim]")
+                console.print("[dim]Executing plan...[/dim]")
+                console.print()
 
-        result = engine.run(plan, policy, fail_fast=not no_fail_fast)
+            result = engine.run(plan, policy, fail_fast=not no_fail_fast)
 
-        # Display results
-        _display_run_result(result, verbose)
+            # Display results
+            if json_output:
+                _output_json_result(result)
+            else:
+                _display_run_result(result, verbose)
 
-        # Exit with appropriate code
-        if result.success:
-            raise typer.Exit(code=0)
+            # Exit with appropriate code
+            if result.success:
+                raise typer.Exit(code=0)
+            else:
+                raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("execution_error", str(e), debug)
         else:
-            raise typer.Exit(code=1)
+            console.print(f"[red]Execution error: {e}[/red]")
+            if debug:
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise typer.Exit(code=1)
 
 
 def _display_run_result(result, verbose: bool) -> None:
@@ -217,6 +258,50 @@ def _display_run_result(result, verbose: bool) -> None:
     # Summary stats
     console.print(f"[dim]Total: {result.total_steps} | Completed: {result.completed_steps} | Denied: {result.denied_steps} | Failed: {result.failed_steps}[/dim]")
     console.print(f"[dim]Duration: {result.duration_ms:.1f}ms[/dim]")
+
+
+def _output_json_result(result: RunResult) -> None:
+    """Output run results in JSON format."""
+    output = {
+        "run_id": result.run_id,
+        "status": result.status.value,
+        "success": result.success,
+        "total_steps": result.total_steps,
+        "completed_steps": result.completed_steps,
+        "denied_steps": result.denied_steps,
+        "failed_steps": result.failed_steps,
+        "duration_ms": result.duration_ms,
+        "steps": [
+            {
+                "step_index": step.step_index,
+                "tool_name": step.tool_name,
+                "args": step.args,
+                "status": step.status.value,
+                "output": step.output,
+                "error": step.error,
+                "policy_decision": {
+                    "allowed": step.policy_decision.allowed,
+                    "reason": step.policy_decision.reason,
+                    "rule_matched": step.policy_decision.rule_matched,
+                } if step.policy_decision else None,
+                "duration_ms": step.duration_ms,
+            }
+            for step in result.steps
+        ],
+    }
+    print(json.dumps(output, indent=2, default=str))
+
+
+def _output_json_error(error_type: str, message: str, include_traceback: bool = False) -> None:
+    """Output an error in JSON format."""
+    output = {
+        "error": True,
+        "error_type": error_type,
+        "message": message,
+    }
+    if include_traceback:
+        output["traceback"] = traceback.format_exc()
+    print(json.dumps(output, indent=2))
 
 
 @app.command()

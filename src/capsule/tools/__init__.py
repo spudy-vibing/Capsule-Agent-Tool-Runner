@@ -26,15 +26,19 @@ Policy enforcement happens BEFORE tool execution, not within tools.
 
 from capsule.tools.base import Tool, ToolContext, ToolOutput
 from capsule.tools.fs import FsReadTool, FsWriteTool, register_fs_tools
+from capsule.tools.http import HttpGetTool, register_http_tools
 from capsule.tools.registry import (
     ToolRegistry,
     default_registry,
     get_tool,
     register_tool,
 )
+from capsule.tools.shell import ShellRunTool, register_shell_tools
 
 # Register built-in tools
 register_fs_tools()
+register_http_tools()
+register_shell_tools()
 
 __all__ = [
     "Tool",
@@ -46,4 +50,6 @@ __all__ = [
     "register_tool",
     "FsReadTool",
     "FsWriteTool",
+    "HttpGetTool",
+    "ShellRunTool",
 ]
