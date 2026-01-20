@@ -23,7 +23,23 @@ JSON report includes:
     - All tool calls with arguments
     - All results with timing
     - Policy decisions with reasons
+
+Example:
+    from capsule.report import generate_console_report, generate_json_report
+
+    # Console report
+    generate_console_report("abc123", "capsule.db")
+
+    # JSON report
+    json_str = generate_json_report("abc123", "capsule.db")
+    print(json_str)
 """
 
-# Public API will be exposed here as report module is implemented
-__all__: list[str] = []
+from capsule.report.console import generate_console_report
+from capsule.report.json import build_report_dict, generate_json_report
+
+__all__ = [
+    "generate_console_report",
+    "generate_json_report",
+    "build_report_dict",
+]

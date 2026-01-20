@@ -29,6 +29,8 @@ from rich.table import Table
 
 from capsule import __version__
 from capsule.engine import Engine, RunResult
+from capsule.replay import ReplayEngine
+from capsule.report import generate_console_report, generate_json_report
 from capsule.schema import RunStatus, ToolCallStatus, load_plan, load_policy
 
 # Initialize Typer app with metadata
@@ -320,15 +322,34 @@ def replay(
             resolve_path=True,
         ),
     ] = None,
-    output: Annotated[
-        Optional[Path],
+    verbose: Annotated[
+        bool,
         typer.Option(
-            "--out",
-            "-o",
-            help="Path to output SQLite database for replay results.",
-            resolve_path=True,
+            "--verbose",
+            help="Enable verbose output for debugging.",
         ),
-    ] = None,
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Enable debug mode with full error tracebacks.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output results in JSON format.",
+        ),
+    ] = False,
+    verify: Annotated[
+        bool,
+        typer.Option(
+            "--verify",
+            help="Verify data integrity of the run before replaying.",
+        ),
+    ] = False,
 ) -> None:
     """
     Replay a previous run using stored results.
@@ -339,11 +360,165 @@ def replay(
     Example:
         $ capsule replay abc123 --db runs.db
     """
-    # TODO: Implement in Phase 3, Step 3.1 (Replay Engine)
-    console.print(f"[yellow]replay command not yet implemented[/yellow]")
-    console.print(f"  Run ID: {run_id}")
-    console.print(f"  Database: {db or 'capsule.db'}")
-    console.print(f"  Output: {output or 'replay.db'}")
+    db_path = db or Path("capsule.db")
+
+    if not db_path.exists():
+        if json_output:
+            _output_json_error("database_not_found", f"Database not found: {db_path}", debug)
+        else:
+            console.print(f"[red]Database not found: {db_path}[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        with ReplayEngine(db_path=db_path) as engine:
+            if verbose and not json_output:
+                console.print(f"[dim]Using database: {db_path}[/dim]")
+
+            # Optionally verify integrity first
+            if verify:
+                if verbose and not json_output:
+                    console.print("[dim]Verifying run integrity...[/dim]")
+                verification = engine.verify_run(run_id)
+                if not verification["valid"]:
+                    if json_output:
+                        _output_json_error("integrity_error", str(verification["errors"]), debug)
+                    else:
+                        console.print("[red]Integrity verification failed:[/red]")
+                        for error in verification["errors"]:
+                            console.print(f"  [red]• {error}[/red]")
+                    raise typer.Exit(code=1)
+                elif verbose and not json_output:
+                    console.print("[green]✓ Integrity verified[/green]")
+
+            if verbose and not json_output:
+                console.print("[dim]Replaying run...[/dim]")
+                console.print()
+
+            result = engine.replay(run_id)
+
+            # Display results
+            if json_output:
+                _output_replay_json_result(result)
+            else:
+                _display_replay_result(result, verbose)
+
+            # Exit with appropriate code
+            if result.success:
+                raise typer.Exit(code=0)
+            else:
+                raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("replay_error", str(e), debug)
+        else:
+            console.print(f"[red]Replay error: {e}[/red]")
+            if debug:
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise typer.Exit(code=1)
+
+
+def _display_replay_result(result, verbose: bool) -> None:
+    """Display replay results in a formatted way."""
+    # Status line with color
+    if result.status == RunStatus.COMPLETED:
+        status_style = "green"
+        status_icon = "[green]✓[/green]"
+    else:
+        status_style = "red"
+        status_icon = "[red]✗[/red]"
+
+    console.print(f"{status_icon} Replay [bold]{result.replay_run_id}[/bold]: [{status_style}]{result.status.value}[/{status_style}]")
+    console.print(f"[dim]  Original run: {result.original_run_id}[/dim]")
+
+    if not result.plan_verified:
+        console.print("[yellow]  Warning: Plan hash mismatch[/yellow]")
+
+    if result.mismatches:
+        console.print("[yellow]  Mismatches detected:[/yellow]")
+        for mismatch in result.mismatches[:5]:
+            console.print(f"[yellow]    • {mismatch}[/yellow]")
+        if len(result.mismatches) > 5:
+            console.print(f"[yellow]    ... and {len(result.mismatches) - 5} more[/yellow]")
+
+    console.print()
+
+    # Step summary table
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("#", style="dim", width=3)
+    table.add_column("Tool", style="cyan")
+    table.add_column("Status", width=10)
+    table.add_column("Details")
+
+    for step in result.steps:
+        step_num = str(step.step_index + 1)
+        tool_name = step.tool_name
+
+        if step.status == ToolCallStatus.SUCCESS:
+            status = "[green]success[/green]"
+            if step.output is not None:
+                output_str = str(step.output)
+                if len(output_str) > 50:
+                    details = output_str[:47] + "..."
+                else:
+                    details = output_str
+            else:
+                details = ""
+        elif step.status == ToolCallStatus.DENIED:
+            status = "[yellow]denied[/yellow]"
+            details = step.policy_decision.reason if step.policy_decision else ""
+        else:  # ERROR
+            status = "[red]error[/red]"
+            details = step.error or ""
+
+        # Truncate details
+        if len(details) > 60:
+            details = details[:57] + "..."
+
+        table.add_row(step_num, tool_name, status, details)
+
+    console.print(table)
+    console.print()
+
+    # Summary stats
+    console.print(f"[dim]Total: {result.total_steps} | Completed: {result.completed_steps} | Denied: {result.denied_steps} | Failed: {result.failed_steps}[/dim]")
+
+
+def _output_replay_json_result(result) -> None:
+    """Output replay results in JSON format."""
+    output = {
+        "replay_run_id": result.replay_run_id,
+        "original_run_id": result.original_run_id,
+        "status": result.status.value,
+        "success": result.success,
+        "plan_verified": result.plan_verified,
+        "mismatches": result.mismatches,
+        "total_steps": result.total_steps,
+        "completed_steps": result.completed_steps,
+        "denied_steps": result.denied_steps,
+        "failed_steps": result.failed_steps,
+        "steps": [
+            {
+                "step_index": step.step_index,
+                "tool_name": step.tool_name,
+                "args": step.args,
+                "status": step.status.value,
+                "output": step.output,
+                "error": step.error,
+                "original_call_id": step.original_call_id,
+                "input_hash": step.input_hash,
+                "output_hash": step.output_hash,
+                "policy_decision": {
+                    "allowed": step.policy_decision.allowed,
+                    "reason": step.policy_decision.reason,
+                    "rule_matched": step.policy_decision.rule_matched,
+                } if step.policy_decision else None,
+            }
+            for step in result.steps
+        ],
+    }
+    print(json.dumps(output, indent=2, default=str))
 
 
 @app.command()
@@ -370,6 +545,20 @@ def report(
             help="Output format: console or json.",
         ),
     ] = "console",
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            help="Enable verbose output with additional details.",
+        ),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Enable debug mode with full error tracebacks.",
+        ),
+    ] = False,
 ) -> None:
     """
     Generate a report for a completed run.
@@ -380,11 +569,26 @@ def report(
     Example:
         $ capsule report abc123 --format json
     """
-    # TODO: Implement in Phase 3, Step 3.2 (Report Commands)
-    console.print(f"[yellow]report command not yet implemented[/yellow]")
-    console.print(f"  Run ID: {run_id}")
-    console.print(f"  Database: {db or 'capsule.db'}")
-    console.print(f"  Format: {format}")
+    db_path = db or Path("capsule.db")
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found: {db_path}[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        if format == "json":
+            report_json = generate_json_report(run_id, db_path)
+            print(report_json)
+        else:
+            generate_console_report(run_id, db_path, console=console, verbose=verbose)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[red]Report error: {e}[/red]")
+        if debug:
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise typer.Exit(code=1)
 
 
 @app.command("list-runs")

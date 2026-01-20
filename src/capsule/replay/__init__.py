@@ -18,7 +18,21 @@ How it works:
 
 Replays are stored as new runs with mode='replay', creating
 a full audit trail of both original and replayed executions.
+
+Example:
+    from capsule.replay import ReplayEngine
+
+    with ReplayEngine("capsule.db") as engine:
+        result = engine.replay("abc123")
+        print(f"Replayed {result.total_steps} steps")
+        for step in result.steps:
+            print(f"  {step.tool_name}: {step.status.value}")
 """
 
-# Public API will be exposed here as replay module is implemented
-__all__: list[str] = []
+from capsule.replay.engine import ReplayEngine, ReplayResult, ReplayStepResult
+
+__all__ = [
+    "ReplayEngine",
+    "ReplayResult",
+    "ReplayStepResult",
+]
