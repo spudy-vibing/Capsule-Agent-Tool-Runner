@@ -328,9 +328,9 @@ ruff format src tests
 
 ## Documentation
 
-- [Requirements](docs/requirements.md) - Product requirements
-- [Implementation Plan](docs/implementation_plan.md) - Technical design
-- [Development Plan](docs/development_plan.md) - Build roadmap
+- [Requirements (v0.1)](docs/archive/v0.1/requirements_v0.1.md) - Product requirements (Archived)
+- [Implementation Plan (v0.1)](docs/archive/v0.1/implementation_plan.md) - Technical design (Archived)
+- [Development Plan (v0.1)](docs/archive/v0.1/development_plan.md) - Build roadmap (Archived)
 - [Architecture](docs/architecture.md) - System architecture
 
 ## Security Considerations
