@@ -10,6 +10,7 @@ Commands:
     report      Generate a report for a completed run
     list-runs   List all recorded runs
     show-run    Show details of a specific run
+    doctor      Check system environment and dependencies
 
 Architecture Note:
     The CLI is intentionally thin - it parses arguments and delegates to the
@@ -771,6 +772,148 @@ def show_run(
             console.print(table)
         else:
             console.print("[dim]No steps recorded.[/dim]")
+
+
+@app.command()
+def doctor(
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output results in JSON format.",
+        ),
+    ] = False,
+) -> None:
+    """
+    Check system environment and dependencies.
+
+    Verifies that Capsule's dependencies are properly configured:
+    - Python version (3.11+)
+    - Ollama connectivity and available models
+    - Database accessibility
+
+    Example:
+        $ capsule doctor
+    """
+    checks = []
+    all_ok = True
+
+    # Check 1: Python version
+    py_version = sys.version_info
+    py_version_str = f"{py_version.major}.{py_version.minor}.{py_version.micro}"
+    py_ok = py_version >= (3, 11)
+    checks.append({
+        "name": "Python version",
+        "ok": py_ok,
+        "value": py_version_str,
+        "message": "OK" if py_ok else "Requires Python 3.11+",
+    })
+    if not py_ok:
+        all_ok = False
+
+    # Check 2: Ollama connectivity
+    ollama_ok = False
+    ollama_models: list[str] = []
+    ollama_message = ""
+
+    try:
+        import httpx
+
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get("http://localhost:11434/api/tags")
+            if response.status_code == 200:
+                data = response.json()
+                ollama_models = [m["name"] for m in data.get("models", [])]
+                if ollama_models:
+                    ollama_ok = True
+                    ollama_message = f"{len(ollama_models)} model(s) available"
+                else:
+                    ollama_message = "Connected but no models. Run: ollama pull qwen2.5:0.5b"
+            else:
+                ollama_message = f"HTTP {response.status_code}"
+    except httpx.ConnectError:
+        ollama_message = "Not running. Install from https://ollama.ai and run: ollama serve"
+    except Exception as e:
+        ollama_message = f"Error: {e}"
+
+    checks.append({
+        "name": "Ollama",
+        "ok": ollama_ok,
+        "value": "localhost:11434",
+        "message": ollama_message,
+        "models": ollama_models if ollama_ok else None,
+    })
+    if not ollama_ok:
+        all_ok = False
+
+    # Check 3: Default database path writability
+    db_path = Path("capsule.db")
+    db_ok = True
+    db_message = ""
+
+    try:
+        if db_path.exists():
+            db_message = f"Exists ({db_path.stat().st_size} bytes)"
+        else:
+            # Check if we can create it
+            parent = db_path.parent.resolve()
+            if parent.exists() and parent.is_dir():
+                db_message = "Not found (will be created on first run)"
+            else:
+                db_ok = False
+                db_message = f"Parent directory not writable: {parent}"
+    except Exception as e:
+        db_ok = False
+        db_message = f"Error: {e}"
+
+    checks.append({
+        "name": "Database",
+        "ok": db_ok,
+        "value": str(db_path),
+        "message": db_message,
+    })
+    if not db_ok:
+        all_ok = False
+
+    # Output results
+    if json_output:
+        output = {
+            "ok": all_ok,
+            "version": __version__,
+            "checks": checks,
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        console.print(f"[bold]Capsule Doctor[/bold] v{__version__}")
+        console.print()
+
+        for check in checks:
+            icon = "[green]✓[/green]" if check["ok"] else "[red]✗[/red]"
+            name = check["name"]
+            value = check.get("value", "")
+            message = check.get("message", "")
+
+            if check["ok"]:
+                console.print(f"{icon} {name}: [dim]{value}[/dim] - {message}")
+            else:
+                console.print(f"{icon} {name}: [dim]{value}[/dim]")
+                console.print(f"    [red]{message}[/red]")
+
+            # Show models if Ollama check
+            if check["name"] == "Ollama" and check.get("models"):
+                console.print("    Available models:")
+                for model in check["models"][:5]:
+                    console.print(f"      [cyan]• {model}[/cyan]")
+                if len(check["models"]) > 5:
+                    console.print(f"      [dim]... and {len(check['models']) - 5} more[/dim]")
+
+        console.print()
+        if all_ok:
+            console.print("[green]All checks passed![/green]")
+        else:
+            console.print("[yellow]Some checks failed. See above for details.[/yellow]")
+
+    raise typer.Exit(code=0 if all_ok else 1)
 
 
 if __name__ == "__main__":

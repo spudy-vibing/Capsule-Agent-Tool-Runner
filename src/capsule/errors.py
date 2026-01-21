@@ -61,6 +61,13 @@ ERROR_STORAGE_WRITE = 5002
 ERROR_STORAGE_READ = 5003
 ERROR_STORAGE_INTEGRITY = 5004
 
+# Planner errors: 6xxx
+ERROR_PLANNER_CONNECTION = 6001
+ERROR_PLANNER_TIMEOUT = 6002
+ERROR_PLANNER_PARSE = 6003
+ERROR_PLANNER_INVALID_RESPONSE = 6004
+ERROR_PLANNER_MODEL_NOT_FOUND = 6005
+
 
 # =============================================================================
 # Base Exception
@@ -587,4 +594,178 @@ class StorageIntegrityError(StorageError):
             self.code = ERROR_STORAGE_INTEGRITY
         if not self.suggestion:
             self.suggestion = "The database may be corrupted. Try using a backup."
+        super().__post_init__()
+
+
+# =============================================================================
+# Planner Errors
+# =============================================================================
+
+
+@dataclass
+class PlannerError(CapsuleError):
+    """
+    Base class for all planner-related errors.
+
+    Planner errors occur when communicating with the planner backend
+    (e.g., Ollama) or processing its responses.
+
+    Attributes:
+        planner: Name of the planner that failed
+        model: Model being used (if applicable)
+    """
+
+    planner: str = ""
+    model: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        self.context.update({
+            "planner": self.planner,
+            "model": self.model,
+        })
+
+
+@dataclass
+class PlannerConnectionError(PlannerError):
+    """
+    Raised when unable to connect to the planner backend.
+
+    Common causes:
+    - Ollama is not running
+    - Network issues
+    - Invalid URL
+    """
+
+    url: str = ""
+    underlying_error: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Cannot connect to planner at {self.url}"
+        if self.code == 0:
+            self.code = ERROR_PLANNER_CONNECTION
+        if not self.suggestion:
+            self.suggestion = (
+                "Ensure Ollama is running: `ollama serve`\n"
+                "Check the URL is correct and accessible."
+            )
+        self.context["url"] = self.url
+        self.context["underlying_error"] = self.underlying_error
+        super().__post_init__()
+
+
+@dataclass
+class PlannerTimeoutError(PlannerError):
+    """
+    Raised when the planner takes too long to respond.
+
+    Common causes:
+    - Model is too large for hardware
+    - Complex prompt requiring extended processing
+    - System under heavy load
+    """
+
+    timeout_seconds: float = 0.0
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Planner timed out after {self.timeout_seconds}s"
+        if self.code == 0:
+            self.code = ERROR_PLANNER_TIMEOUT
+        if not self.suggestion:
+            self.suggestion = (
+                "Try a smaller model or increase timeout.\n"
+                "Check system resources (CPU/RAM usage)."
+            )
+        self.context["timeout_seconds"] = self.timeout_seconds
+        super().__post_init__()
+
+
+@dataclass
+class PlannerParseError(PlannerError):
+    """
+    Raised when the planner response cannot be parsed.
+
+    This typically means the SLM generated malformed JSON or
+    unexpected output format.
+
+    Attributes:
+        raw_response: The unparseable response
+        parse_error: Description of what went wrong
+    """
+
+    raw_response: str = ""
+    parse_error: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Cannot parse planner response: {self.parse_error}"
+        if self.code == 0:
+            self.code = ERROR_PLANNER_PARSE
+        if not self.suggestion:
+            self.suggestion = (
+                "The model may need a different prompt format.\n"
+                "Try lowering temperature for more consistent output."
+            )
+        self.context["raw_response"] = self.raw_response[:500]  # Truncate for safety
+        self.context["parse_error"] = self.parse_error
+        super().__post_init__()
+
+
+@dataclass
+class PlannerInvalidResponseError(PlannerError):
+    """
+    Raised when the planner response is valid JSON but has invalid content.
+
+    For example:
+    - Missing required fields (tool_name)
+    - Invalid tool name
+    - Invalid argument types
+    """
+
+    raw_response: str = ""
+    validation_error: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Invalid planner response: {self.validation_error}"
+        if self.code == 0:
+            self.code = ERROR_PLANNER_INVALID_RESPONSE
+        if not self.suggestion:
+            self.suggestion = "The model may need clearer instructions about response format."
+        self.context["raw_response"] = self.raw_response[:500]
+        self.context["validation_error"] = self.validation_error
+        super().__post_init__()
+
+
+@dataclass
+class PlannerModelNotFoundError(PlannerError):
+    """
+    Raised when the specified model is not available.
+
+    Common causes:
+    - Model not pulled yet
+    - Typo in model name
+    """
+
+    available_models: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Model not found: {self.model}"
+        if self.code == 0:
+            self.code = ERROR_PLANNER_MODEL_NOT_FOUND
+        if not self.suggestion:
+            if self.available_models:
+                models_str = ", ".join(self.available_models[:5])
+                self.suggestion = f"Pull the model: `ollama pull {self.model}`\nAvailable: {models_str}"
+            else:
+                self.suggestion = f"Pull the model: `ollama pull {self.model}`"
+        self.context["available_models"] = self.available_models
         super().__post_init__()

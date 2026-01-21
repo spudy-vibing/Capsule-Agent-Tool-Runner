@@ -494,6 +494,128 @@ class Run(BaseModel):
 
 
 # =============================================================================
+# Planner Models
+# =============================================================================
+
+
+class PlannerConfig(BaseModel):
+    """
+    Configuration for a planner backend.
+
+    This model defines the settings used to connect to and configure
+    a planner implementation (e.g., Ollama, OpenAI).
+
+    Attributes:
+        backend: The planner backend type (e.g., "ollama", "openai")
+        base_url: Base URL for the planner API
+        model: Model identifier to use
+        timeout_seconds: Request timeout
+        max_retries: Number of retries on failure
+        retry_delay_seconds: Delay between retries
+        temperature: Sampling temperature (0.0-2.0, lower = more deterministic)
+        max_tokens: Maximum tokens in response
+
+    Example:
+        config = PlannerConfig(
+            backend="ollama",
+            model="qwen2.5:0.5b",
+            temperature=0.1,
+        )
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    backend: str = Field(
+        default="ollama",
+        description="Planner backend type",
+    )
+    base_url: str = Field(
+        default="http://localhost:11434",
+        description="Base URL for planner API",
+    )
+    model: str = Field(
+        default="qwen2.5:0.5b",
+        description="Model identifier",
+    )
+    timeout_seconds: float = Field(
+        default=30.0,
+        description="Request timeout in seconds",
+        gt=0,
+    )
+    max_retries: int = Field(
+        default=3,
+        description="Number of retries on failure",
+        ge=0,
+    )
+    retry_delay_seconds: float = Field(
+        default=1.0,
+        description="Delay between retries",
+        ge=0,
+    )
+    temperature: float = Field(
+        default=0.1,
+        description="Sampling temperature",
+        ge=0.0,
+        le=2.0,
+    )
+    max_tokens: int = Field(
+        default=1024,
+        description="Maximum tokens in response",
+        gt=0,
+    )
+
+
+class PlannerProposal(BaseModel):
+    """
+    A tool call proposal from a planner.
+
+    This represents the raw proposal from a planner before it's validated
+    against policy. It includes the proposed tool call and metadata about
+    how the proposal was generated.
+
+    Attributes:
+        tool_name: Name of the tool to call
+        args: Arguments to pass to the tool
+        reasoning: Optional explanation of why this call was proposed
+        confidence: Optional confidence score (0.0-1.0)
+        raw_response: The raw response from the planner (for debugging)
+        iteration: Which iteration this proposal was generated on
+
+    Note:
+        This is the planner's PROPOSAL. It must be validated against
+        policy before execution. The actual ToolCall is created after
+        policy validation passes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool_name: str = Field(..., description="Name of the tool to call")
+    args: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arguments for the tool",
+    )
+    reasoning: str | None = Field(
+        default=None,
+        description="Planner's reasoning for this proposal",
+    )
+    confidence: float | None = Field(
+        default=None,
+        description="Confidence score (0.0-1.0)",
+        ge=0.0,
+        le=1.0,
+    )
+    raw_response: str | None = Field(
+        default=None,
+        description="Raw response from planner",
+    )
+    iteration: int = Field(
+        default=0,
+        description="Iteration number",
+        ge=0,
+    )
+
+
+# =============================================================================
 # YAML Loading Helpers
 # =============================================================================
 
