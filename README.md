@@ -328,10 +328,11 @@ ruff format src tests
 
 ## Documentation
 
+- [Architecture](docs/architecture.md) - System architecture
+- [Threat Model](docs/threat_model.md) - Security threat analysis and mitigations
 - [Requirements (v0.1)](docs/archive/v0.1/requirements_v0.1.md) - Product requirements (Archived)
 - [Implementation Plan (v0.1)](docs/archive/v0.1/implementation_plan.md) - Technical design (Archived)
 - [Development Plan (v0.1)](docs/archive/v0.1/development_plan.md) - Build roadmap (Archived)
-- [Architecture](docs/architecture.md) - System architecture
 
 ## Security Considerations
 
@@ -339,9 +340,13 @@ Capsule is designed with security in mind:
 
 - **Deny-by-default**: All operations blocked unless explicitly allowed
 - **Path normalization**: Symlinks resolved, `..` traversal blocked
+- **Symlink protection**: Symlink escapes detected and blocked (v0.1.1)
 - **Private IP blocking**: HTTP requests to internal networks blocked by default
+- **DNS rebinding protection**: IPs verified before HTTP requests
 - **Shell safety**: Commands use list form (no shell injection), token scanning
 - **Audit trail**: All operations logged with cryptographic hashes
+
+**Audit Log Security:** The SQLite database (`capsule.db`) stores complete tool inputs and outputs, which may include sensitive data like API keys or file contents. Secure the database file appropriately and review contents before sharing. See [Threat Model](docs/threat_model.md) for details.
 
 However, Capsule is not a security sandbox. It provides policy enforcement but runs tools in the same process. For untrusted code execution, use containerization.
 
