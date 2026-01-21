@@ -22,6 +22,7 @@ Security Note:
     path traversal attacks.
 """
 
+import os
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -221,13 +222,31 @@ class PolicyEngine:
 
         allowed = False
         matched_pattern = None
+        symlink_escape_reason = None
         for pattern in fs_policy.allow_paths:
             if self._path_matches_pattern(resolved_str, pattern, working_dir):
-                allowed = True
-                matched_pattern = pattern
-                break
+                # Additional symlink containment check
+                pattern_base = self._extract_pattern_base(pattern, working_dir)
+                contained, reason = self._check_symlink_containment(
+                    original_path=path,
+                    resolved_path=resolved_path,
+                    pattern_base=pattern_base,
+                )
+                if contained:
+                    allowed = True
+                    matched_pattern = pattern
+                    break
+                else:
+                    # Pattern matched but symlink escapes - try other patterns
+                    # (the symlink might legitimately point to another allowed area)
+                    symlink_escape_reason = reason
 
         if not allowed:
+            if symlink_escape_reason:
+                return PolicyDecision.deny(
+                    symlink_escape_reason,
+                    rule="symlink_escape",
+                )
             return PolicyDecision.deny(
                 f"Path not in allowlist: {path_str}",
                 rule="allow_paths",
@@ -265,6 +284,96 @@ class PolicyEngine:
             if part.startswith(".") and part not in (".", ".."):
                 return True
         return False
+
+    def _extract_pattern_base(self, pattern: str, working_dir: str) -> Path:
+        """
+        Extract the non-glob base path from a pattern.
+
+        Examples:
+            "/home/user/**" -> Path("/home/user")
+            "/tmp/*.txt" -> Path("/tmp")
+            "./**" -> Path(working_dir)
+
+        Args:
+            pattern: The glob pattern
+            working_dir: Working directory for relative patterns
+
+        Returns:
+            The base path without glob components
+        """
+        if "**" in pattern:
+            base_str, _ = pattern.split("**", 1)
+        elif "*" in pattern:
+            base_str = str(Path(pattern).parent)
+        else:
+            base_str = pattern
+
+        base_path = Path(base_str) if base_str else Path(".")
+        if not base_path.is_absolute():
+            base_path = Path(working_dir) / base_path
+
+        return base_path
+
+    def _check_symlink_containment(
+        self,
+        original_path: Path,
+        resolved_path: Path,
+        pattern_base: Path,
+    ) -> tuple[bool, str]:
+        """
+        Verify that symlink resolution doesn't escape the pattern boundary.
+
+        This prevents symlink escape attacks where a symlink inside an allowed
+        directory points to a location outside the intended scope.
+
+        Security checks:
+        1. The pattern base itself should not be a symlink (prevents pattern base attacks)
+        2. The resolved path must be under the resolved pattern base
+
+        This allows system symlinks (like /var -> /private/var on macOS) in
+        ancestor directories while blocking explicit symlink attacks.
+
+        Args:
+            original_path: Path as provided (may contain symlinks)
+            resolved_path: Path after resolve() (symlinks followed)
+            pattern_base: The non-glob prefix of the allow pattern
+
+        Returns:
+            Tuple of (contained: bool, reason: str)
+        """
+        # Security check 1: Pattern base itself should not be a symlink
+        # This catches attacks where the pattern base is a symlink to a sensitive area
+        # e.g., /allowed/data -> /etc, pattern is /allowed/data/**
+        try:
+            if pattern_base.is_symlink():
+                return (
+                    False,
+                    f"Pattern base is a symlink: {pattern_base} -> {pattern_base.resolve()}",
+                )
+        except OSError:
+            # If we can't check, allow (fail-open for this specific check)
+            pass
+
+        # Security check 2: Resolved path must be under resolved pattern base
+        # We resolve the base to handle system symlinks like /var -> /private/var
+        try:
+            resolved_base = pattern_base.resolve()
+        except OSError as e:
+            return (False, f"Cannot resolve pattern base: {e}")
+
+        try:
+            resolved_path.relative_to(resolved_base)
+            return (True, "Path is within boundary")
+        except ValueError:
+            pass
+
+        # Resolved path is NOT under the resolved base
+        # This means a symlink in the path escaped the boundary
+        return (
+            False,
+            f"Symlink escape detected: {original_path} resolves to {resolved_path} "
+            f"which is outside {resolved_base}",
+        )
 
     def _path_matches_pattern(
         self,

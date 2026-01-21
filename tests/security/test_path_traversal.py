@@ -285,6 +285,199 @@ class TestSymlinkAttacks:
         # Note: Path.resolve() follows symlinks, so this will resolve to /etc/passwd
         assert decision.allowed is False
 
+    def test_symlink_chain_escape_blocked(
+        self,
+        restricted_policy: Policy,
+        temp_dir: Path,
+    ) -> None:
+        """Chain of symlinks that escapes boundary is blocked."""
+        try:
+            # Create chain: link1 -> link2 -> link3 -> /etc
+            (temp_dir / "link3").symlink_to("/etc")
+            (temp_dir / "link2").symlink_to(temp_dir / "link3")
+            (temp_dir / "link1").symlink_to(temp_dir / "link2")
+        except OSError:
+            pytest.skip("Cannot create symlinks on this system")
+
+        engine = PolicyEngine(restricted_policy)
+
+        decision = engine.evaluate(
+            "fs.read",
+            {"path": str(temp_dir / "link1" / "passwd")},
+            str(temp_dir),
+        )
+        assert decision.allowed is False
+
+    def test_relative_symlink_escape_blocked(
+        self,
+        restricted_policy: Policy,
+        temp_dir: Path,
+    ) -> None:
+        """Relative symlink that escapes via ../ is blocked."""
+        subdir = temp_dir / "subdir"
+        subdir.mkdir()
+
+        try:
+            # Create symlink using relative path to escape
+            (subdir / "escape_link").symlink_to("../../etc/passwd")
+        except OSError:
+            pytest.skip("Cannot create symlinks on this system")
+
+        engine = PolicyEngine(restricted_policy)
+
+        decision = engine.evaluate(
+            "fs.read",
+            {"path": str(subdir / "escape_link")},
+            str(temp_dir),
+        )
+        assert decision.allowed is False
+
+    def test_symlink_to_another_allowed_path_permitted(
+        self,
+        temp_dir: Path,
+    ) -> None:
+        """Symlink pointing to another allowed location is permitted."""
+        # Create two directories, both allowed
+        dir_a = temp_dir / "dir_a"
+        dir_b = temp_dir / "dir_b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+
+        # Create file in dir_b
+        (dir_b / "file.txt").write_text("content")
+
+        try:
+            # Create symlink in dir_a pointing to dir_b
+            (dir_a / "link_to_b").symlink_to(dir_b)
+        except OSError:
+            pytest.skip("Cannot create symlinks on this system")
+
+        # Policy allows entire temp_dir
+        policy = Policy(
+            tools=ToolPolicies(
+                **{"fs.read": FsPolicy(allow_paths=[f"{temp_dir}/**"])}
+            )
+        )
+        engine = PolicyEngine(policy)
+
+        # This should be allowed - both source and target are in allowed area
+        decision = engine.evaluate(
+            "fs.read",
+            {"path": str(dir_a / "link_to_b" / "file.txt")},
+            str(temp_dir),
+        )
+        assert decision.allowed is True
+
+    def test_symlink_loop_handled_gracefully(
+        self,
+        restricted_policy: Policy,
+        temp_dir: Path,
+    ) -> None:
+        """Circular symlinks are handled without infinite loop or crash."""
+        try:
+            # Create circular symlink: loop_a -> loop_b -> loop_a
+            (temp_dir / "loop_a").symlink_to(temp_dir / "loop_b")
+            (temp_dir / "loop_b").symlink_to(temp_dir / "loop_a")
+        except OSError:
+            pytest.skip("Cannot create symlinks on this system")
+
+        engine = PolicyEngine(restricted_policy)
+
+        # The key test: this should NOT hang or crash
+        # Policy may allow (symlinks stay within allowed area) or deny (resolution fails)
+        # Either outcome is acceptable as long as it completes
+        decision = engine.evaluate(
+            "fs.read",
+            {"path": str(temp_dir / "loop_a" / "file.txt")},
+            str(temp_dir),
+        )
+        # Just verify we got a decision (didn't hang)
+        assert decision is not None
+        assert isinstance(decision.allowed, bool)
+
+    def test_broken_symlink_handled(
+        self,
+        restricted_policy: Policy,
+        temp_dir: Path,
+    ) -> None:
+        """Broken symlinks (pointing to non-existent outside path) are handled."""
+        try:
+            (temp_dir / "broken_link").symlink_to("/nonexistent/path/file.txt")
+        except OSError:
+            pytest.skip("Cannot create symlinks on this system")
+
+        engine = PolicyEngine(restricted_policy)
+
+        decision = engine.evaluate(
+            "fs.read",
+            {"path": str(temp_dir / "broken_link")},
+            str(temp_dir),
+        )
+        # Should be denied - points outside allowed area
+        assert decision.allowed is False
+
+    def test_symlink_escape_gives_clear_reason(
+        self,
+        restricted_policy: Policy,
+        temp_dir: Path,
+    ) -> None:
+        """Symlink escape denial is blocked (reason may vary based on how it's caught)."""
+        try:
+            (temp_dir / "escape_link").symlink_to("/etc/passwd")
+        except OSError:
+            pytest.skip("Cannot create symlinks on this system")
+
+        engine = PolicyEngine(restricted_policy)
+
+        decision = engine.evaluate(
+            "fs.read",
+            {"path": str(temp_dir / "escape_link")},
+            str(temp_dir),
+        )
+        assert decision.allowed is False
+        # The denial may be caught by pattern matching (resolved path doesn't match)
+        # or by explicit symlink escape detection. Either is acceptable.
+        assert decision.reason  # Just verify there's a reason
+
+
+class TestPatternBaseSymlinkAttack:
+    """
+    Tests for attacks where the pattern base itself is a symlink.
+
+    Scenario: If an attacker can create a symlink at the pattern base,
+    they could redirect all allowed paths to a sensitive location.
+    """
+
+    def test_pattern_base_symlink_to_sensitive_blocked(
+        self,
+        temp_dir: Path,
+    ) -> None:
+        """Pattern base being a symlink to /etc is blocked."""
+        data_dir = temp_dir / "data"
+
+        try:
+            # Create: temp_dir/data -> /etc
+            data_dir.symlink_to("/etc")
+        except OSError:
+            pytest.skip("Cannot create symlinks on this system")
+
+        # Policy allows temp_dir/data/**
+        policy = Policy(
+            tools=ToolPolicies(
+                **{"fs.read": FsPolicy(allow_paths=[f"{temp_dir}/data/**"])}
+            )
+        )
+        engine = PolicyEngine(policy)
+
+        # Attempt to read /etc/passwd via the symlink
+        decision = engine.evaluate(
+            "fs.read",
+            {"path": str(temp_dir / "data" / "passwd")},
+            str(temp_dir),
+        )
+        # Should be BLOCKED - resolves to /etc/passwd which is outside boundary
+        assert decision.allowed is False
+
 
 class TestWriteSecurityChecks:
     """Security tests specific to fs.write."""

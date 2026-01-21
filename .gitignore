@@ -70,6 +70,7 @@ venv.bak/
 .project
 .pydevproject
 .settings/
+.claude/
 
 # Jupyter Notebook
 .ipynb_checkpoints

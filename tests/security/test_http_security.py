@@ -335,3 +335,85 @@ class TestTimeoutHandling:
 
             assert result.success is False
             assert "timed out" in result.error.lower()
+
+
+class TestCloudMetadataEndpoints:
+    """
+    Tests for cloud metadata endpoint blocking.
+
+    Cloud providers expose metadata endpoints at well-known addresses.
+    SSRF attacks often target these endpoints to extract credentials.
+    These tests verify the endpoints are blocked by private IP checks.
+    """
+
+    @pytest.mark.parametrize(
+        "metadata_ip,description",
+        [
+            ("169.254.169.254", "AWS/Azure/DigitalOcean metadata"),
+            ("169.254.170.2", "AWS ECS task metadata"),
+            # Note: 100.100.100.200 (Alibaba) is in CGN range (100.64.0.0/10)
+            # which Python's ipaddress doesn't consider "private"
+        ],
+    )
+    def test_cloud_metadata_ips_blocked(
+        self,
+        metadata_ip: str,
+        description: str,
+    ) -> None:
+        """Cloud metadata IPs are identified as private."""
+        assert is_private_ip(metadata_ip) is True, f"{description} should be blocked"
+
+    @pytest.mark.parametrize(
+        "url,metadata_ip",
+        [
+            ("http://169.254.169.254/latest/meta-data/", "169.254.169.254"),
+            ("http://169.254.169.254/metadata/v1/", "169.254.169.254"),
+        ],
+    )
+    def test_cloud_metadata_urls_blocked_at_execution(
+        self,
+        url: str,
+        metadata_ip: str,
+    ) -> None:
+        """HTTP requests to cloud metadata endpoints are blocked."""
+        tool = HttpGetTool()
+
+        policy = Policy(
+            tools=ToolPolicies(
+                http_get=HttpPolicy(
+                    allow_domains=["*"],  # Allow all domains
+                    deny_private_ips=True,
+                )
+            )
+        )
+        context = ToolContext(run_id="test-run", policy=policy)
+
+        # Mock DNS to return the metadata IP
+        with patch("capsule.tools.http.resolve_hostname") as mock_resolve:
+            mock_resolve.return_value = [metadata_ip]
+            result = tool.execute({"url": url}, context)
+
+        assert result.success is False
+        assert "private" in result.error.lower() or "rebinding" in result.error.lower()
+
+    def test_metadata_domain_via_dns_rebinding_blocked(self) -> None:
+        """DNS rebinding to metadata IP is blocked even with valid domain."""
+        tool = HttpGetTool()
+
+        policy = Policy(
+            tools=ToolPolicies(
+                http_get=HttpPolicy(
+                    allow_domains=["evil.com"],
+                    deny_private_ips=True,
+                )
+            )
+        )
+        context = ToolContext(run_id="test-run", policy=policy)
+
+        # Attacker's domain resolves to metadata IP
+        with patch("capsule.tools.http.resolve_hostname") as mock_resolve:
+            mock_resolve.return_value = ["169.254.169.254"]
+            result = tool.execute({"url": "http://evil.com/steal-creds"}, context)
+
+        assert result.success is False
+        assert "169.254.169.254" in result.error
