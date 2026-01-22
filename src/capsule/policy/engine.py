@@ -23,6 +23,7 @@ Security Note:
 """
 
 import os
+import re
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -639,9 +640,14 @@ class PolicyEngine:
             )
 
         # Check for denied tokens in arguments
+        # Use word boundary matching to avoid false positives like "su" in "capsule"
+        # A token matches if it's not embedded within alphanumeric characters
         full_cmd_str = " ".join(str(arg) for arg in cmd)
         for token in shell_policy.deny_tokens:
-            if token.lower() in full_cmd_str.lower():
+            # Escape regex special characters and use negative lookbehind/lookahead
+            # to ensure token is not part of a larger alphanumeric word
+            pattern = r"(?<![a-zA-Z0-9])" + re.escape(token) + r"(?![a-zA-Z0-9])"
+            if re.search(pattern, full_cmd_str, re.IGNORECASE):
                 return PolicyDecision.deny(
                     f"Blocked token found: {token}",
                     rule=f"deny_tokens[{token}]",

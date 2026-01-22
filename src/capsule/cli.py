@@ -916,5 +916,516 @@ def doctor(
     raise typer.Exit(code=0 if all_ok else 1)
 
 
+# =============================================================================
+# Agent Subcommand Group
+# =============================================================================
+
+agent_app = typer.Typer(
+    name="agent",
+    help="Run dynamic agent tasks with planner-driven execution.",
+    no_args_is_help=True,
+)
+app.add_typer(agent_app, name="agent")
+
+
+@agent_app.command("run")
+def agent_run(
+    task: Annotated[
+        str,
+        typer.Argument(help="The task description for the agent to execute."),
+    ],
+    policy_path: Annotated[
+        Path,
+        typer.Option(
+            "--policy",
+            "-p",
+            help="Path to the policy YAML file.",
+            exists=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    tools_path: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--tools",
+            "-t",
+            help="Path to the tools YAML file (optional, uses built-in tools by default).",
+            exists=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    planner_backend: Annotated[
+        str,
+        typer.Option(
+            "--planner",
+            help="Planner backend to use.",
+        ),
+    ] = "ollama",
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Model name for the planner.",
+        ),
+    ] = "qwen2.5:0.5b",
+    max_iterations: Annotated[
+        int,
+        typer.Option(
+            "--max-iterations",
+            help="Maximum number of iterations.",
+        ),
+    ] = 20,
+    working_dir: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--working-dir",
+            "-w",
+            help="Working directory for tool execution.",
+            resolve_path=True,
+        ),
+    ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--out",
+            "-o",
+            help="Path to output SQLite database. Defaults to capsule.db.",
+            resolve_path=True,
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output results in JSON format.",
+        ),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            help="Enable verbose output.",
+        ),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Enable debug mode with full error tracebacks.",
+        ),
+    ] = False,
+    pretty: Annotated[
+        bool,
+        typer.Option(
+            "--pretty",
+            help="Human-readable output showing full tool results.",
+        ),
+    ] = False,
+) -> None:
+    """
+    Execute a dynamic agent task using a planner.
+
+    The agent uses a planner (like Ollama with an SLM) to dynamically
+    decide what tools to call based on the task description and
+    execution history.
+
+    Example:
+        $ capsule agent run "List all Python files" --policy policy.yaml
+        $ capsule agent run "Count lines in README.md" -p policy.yaml --model qwen2.5:0.5b
+    """
+    from capsule.agent import AgentConfig, AgentLoop
+    from capsule.planner.ollama import OllamaPlanner
+    from capsule.policy.engine import PolicyEngine
+    from capsule.schema import PlannerConfig
+    from capsule.store.db import CapsuleDB
+    from capsule.tools.registry import default_registry
+
+    db_path = output or Path("capsule.db")
+    work_dir = str(working_dir or Path.cwd())
+
+    # Load policy
+    try:
+        policy = load_policy(policy_path)
+        if verbose and not json_output:
+            console.print(f"[dim]Loaded policy: {policy_path}[/dim]")
+    except Exception as e:
+        if json_output:
+            _output_json_error("policy_load_error", str(e), debug)
+        else:
+            console.print(f"[red]Error loading policy: {e}[/red]")
+            if debug:
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise typer.Exit(code=1)
+
+    # Create planner
+    if planner_backend == "ollama":
+        planner_config = PlannerConfig(
+            backend="ollama",
+            model=model,
+        )
+        planner = OllamaPlanner(planner_config)
+
+        # Check connection
+        ok, message = planner.check_connection()
+        if not ok:
+            if json_output:
+                _output_json_error("planner_connection_error", message, debug)
+            else:
+                console.print(f"[red]Planner error: {message}[/red]")
+            raise typer.Exit(code=1)
+
+        if verbose and not json_output:
+            console.print(f"[dim]Using planner: {planner.get_name()}[/dim]")
+    else:
+        if json_output:
+            _output_json_error("invalid_planner", f"Unknown planner: {planner_backend}", debug)
+        else:
+            console.print(f"[red]Unknown planner: {planner_backend}[/red]")
+        raise typer.Exit(code=1)
+
+    # Create components
+    try:
+        policy_engine = PolicyEngine(policy)
+        db = CapsuleDB(db_path)
+        agent_config = AgentConfig(max_iterations=max_iterations)
+
+        if verbose and not json_output:
+            console.print(f"[dim]Using database: {db_path}[/dim]")
+            console.print(f"[dim]Working directory: {work_dir}[/dim]")
+            console.print(f"[dim]Max iterations: {max_iterations}[/dim]")
+            console.print()
+            console.print(f"[bold]Task:[/bold] {task}")
+            console.print()
+
+        # Create and run agent loop
+        loop = AgentLoop(
+            planner=planner,
+            policy_engine=policy_engine,
+            registry=default_registry,
+            db=db,
+            config=agent_config,
+        )
+
+        result = loop.run(task=task, working_dir=work_dir)
+
+        # Output results
+        if json_output:
+            _output_agent_json_result(result)
+        elif pretty:
+            _display_agent_result_pretty(result, task)
+        else:
+            _display_agent_result(result, verbose)
+
+        # Cleanup
+        db.close()
+        planner.close()
+
+        # Exit with appropriate code
+        if result.status == "completed":
+            raise typer.Exit(code=0)
+        else:
+            raise typer.Exit(code=1)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("agent_error", str(e), debug)
+        else:
+            console.print(f"[red]Agent error: {e}[/red]")
+            if debug:
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise typer.Exit(code=1)
+
+
+def _display_agent_result(result, verbose: bool) -> None:
+    """Display agent results in a formatted way."""
+    from capsule.schema import ToolCallStatus
+
+    # Status line with color
+    status = result.status
+    if status == "completed":
+        status_style = "green"
+        status_icon = "[green]✓[/green]"
+    elif status in ("max_iterations", "timeout", "repetition_detected"):
+        status_style = "yellow"
+        status_icon = "[yellow]![/yellow]"
+    else:
+        status_style = "red"
+        status_icon = "[red]✗[/red]"
+
+    console.print(
+        f"{status_icon} Agent Run [bold]{result.run_id}[/bold]: "
+        f"[{status_style}]{status}[/{status_style}]"
+    )
+    console.print(f"[dim]  Planner: {result.planner_name}[/dim]")
+    console.print(f"[dim]  Duration: {result.total_duration_seconds:.2f}s[/dim]")
+    console.print()
+
+    if result.error_message:
+        console.print(f"[red]Error: {result.error_message}[/red]")
+        console.print()
+
+    # Iteration table
+    if result.iterations:
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Tool", style="cyan")
+        table.add_column("Status", width=10)
+        table.add_column("Duration", justify="right", width=10)
+        table.add_column("Details")
+
+        for iter_result in result.iterations:
+            iter_num = str(iter_result.iteration + 1)
+
+            # Check if this was a done signal
+            if iter_result.done:
+                tool_name = "[done]"
+                status_col = "[blue]done[/blue]"
+                details = iter_result.done.reason
+            elif iter_result.tool_call:
+                tool_name = iter_result.tool_call.tool_name
+
+                if iter_result.tool_result:
+                    tr_status = iter_result.tool_result.status
+                    if tr_status == ToolCallStatus.SUCCESS:
+                        status_col = "[green]success[/green]"
+                        output = iter_result.tool_result.output
+                        if output:
+                            details = str(output)[:50]
+                            if len(str(output)) > 50:
+                                details += "..."
+                        else:
+                            details = ""
+                    elif tr_status == ToolCallStatus.DENIED:
+                        status_col = "[yellow]denied[/yellow]"
+                        details = (
+                            iter_result.policy_decision.reason
+                            if iter_result.policy_decision
+                            else ""
+                        )
+                    else:
+                        status_col = "[red]error[/red]"
+                        details = iter_result.tool_result.error or ""
+                else:
+                    status_col = "[dim]pending[/dim]"
+                    details = ""
+            else:
+                tool_name = "[unknown]"
+                status_col = "[dim]unknown[/dim]"
+                details = ""
+
+            duration = f"{iter_result.duration_seconds:.2f}s"
+
+            # Truncate details
+            if len(details) > 50:
+                details = details[:47] + "..."
+
+            table.add_row(iter_num, tool_name, status_col, duration, details)
+
+        console.print(table)
+        console.print()
+
+    # Final output
+    if result.final_output:
+        console.print("[bold]Final Output:[/bold]")
+        if isinstance(result.final_output, dict):
+            console.print(json.dumps(result.final_output, indent=2))
+        else:
+            console.print(str(result.final_output))
+        console.print()
+
+    # Summary
+    total_iterations = len(result.iterations)
+    successful = sum(
+        1
+        for i in result.iterations
+        if i.tool_result and i.tool_result.status == ToolCallStatus.SUCCESS
+    )
+    denied = sum(
+        1
+        for i in result.iterations
+        if i.tool_result and i.tool_result.status == ToolCallStatus.DENIED
+    )
+    failed = sum(
+        1
+        for i in result.iterations
+        if i.tool_result and i.tool_result.status == ToolCallStatus.ERROR
+    )
+
+    console.print(
+        f"[dim]Iterations: {total_iterations} | "
+        f"Successful: {successful} | "
+        f"Denied: {denied} | "
+        f"Failed: {failed}[/dim]"
+    )
+
+
+def _display_agent_result_pretty(result, task: str) -> None:
+    """Display agent results in human-readable format with full tool outputs."""
+    from capsule.schema import ToolCallStatus
+
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+    from rich.markdown import Markdown
+
+    # Header
+    console.print()
+    console.print(Panel(f"[bold]{task}[/bold]", title="Task", border_style="blue"))
+    console.print()
+
+    # Status
+    status = result.status
+    if status == "completed":
+        status_icon = "[green]✓[/green]"
+        status_text = "[green]Completed[/green]"
+    elif status in ("max_iterations", "timeout", "repetition_detected"):
+        status_icon = "[yellow]![/yellow]"
+        status_text = f"[yellow]{status}[/yellow]"
+    else:
+        status_icon = "[red]✗[/red]"
+        status_text = f"[red]{status}[/red]"
+
+    console.print(f"{status_icon} Status: {status_text} | Duration: {result.total_duration_seconds:.2f}s")
+    console.print()
+
+    if result.error_message:
+        console.print(Panel(f"[red]{result.error_message}[/red]", title="Error", border_style="red"))
+        console.print()
+
+    # Iterations with full output
+    for iter_result in result.iterations:
+        iter_num = iter_result.iteration + 1
+
+        if iter_result.done:
+            # Done signal
+            console.print(f"[bold blue]Step {iter_num}:[/bold blue] [blue]Done[/blue]")
+            if iter_result.done.reason:
+                console.print(f"  Reason: {iter_result.done.reason}")
+            if iter_result.done.final_output:
+                console.print(f"  Output: {iter_result.done.final_output}")
+            console.print()
+
+        elif iter_result.tool_call:
+            tc = iter_result.tool_call
+            tr = iter_result.tool_result
+
+            # Tool call header
+            args_str = ", ".join(f"{k}={repr(v)}" for k, v in tc.args.items())
+            console.print(f"[bold cyan]Step {iter_num}:[/bold cyan] {tc.tool_name}({args_str})")
+
+            if tr:
+                if tr.status == ToolCallStatus.SUCCESS:
+                    console.print(f"  [green]✓ Success[/green] ({iter_result.duration_seconds:.2f}s)")
+
+                    # Display output
+                    if tr.output:
+                        output = tr.output
+                        if isinstance(output, dict):
+                            # Shell command output
+                            if "stdout" in output:
+                                stdout = output.get("stdout", "")
+                                stderr = output.get("stderr", "")
+                                return_code = output.get("return_code", 0)
+
+                                if stdout:
+                                    console.print()
+                                    console.print(Panel(
+                                        stdout.rstrip(),
+                                        title=f"Output (exit {return_code})",
+                                        border_style="green" if return_code == 0 else "yellow",
+                                    ))
+                                if stderr:
+                                    console.print(Panel(stderr.rstrip(), title="Stderr", border_style="yellow"))
+                            else:
+                                # Other dict output
+                                console.print()
+                                console.print(Panel(
+                                    json.dumps(output, indent=2),
+                                    title="Output",
+                                    border_style="green",
+                                ))
+                        else:
+                            # String output (file contents, etc.)
+                            output_str = str(output)
+                            if len(output_str) > 2000:
+                                output_str = output_str[:2000] + "\n... (truncated)"
+                            console.print()
+                            console.print(Panel(output_str, title="Output", border_style="green"))
+
+                elif tr.status == ToolCallStatus.DENIED:
+                    console.print(f"  [yellow]✗ Denied[/yellow]: {tr.error or 'Policy violation'}")
+
+                else:
+                    console.print(f"  [red]✗ Error[/red]: {tr.error or 'Unknown error'}")
+
+            console.print()
+
+    # Final output if any
+    if result.final_output:
+        console.print(Panel(
+            str(result.final_output),
+            title="[bold]Final Answer[/bold]",
+            border_style="green",
+        ))
+        console.print()
+
+    # Summary line
+    total = len(result.iterations)
+    successful = sum(1 for i in result.iterations if i.tool_result and i.tool_result.status == ToolCallStatus.SUCCESS)
+    console.print(f"[dim]─── {total} steps, {successful} successful ───[/dim]")
+
+
+def _output_agent_json_result(result) -> None:
+    """Output agent results in JSON format."""
+    from capsule.schema import ToolCallStatus
+
+    output = {
+        "run_id": result.run_id,
+        "task": result.task,
+        "status": result.status,
+        "planner_name": result.planner_name,
+        "total_duration_seconds": result.total_duration_seconds,
+        "final_output": result.final_output,
+        "error_message": result.error_message,
+        "iterations": [
+            {
+                "iteration": i.iteration,
+                "duration_seconds": i.duration_seconds,
+                "tool_call": {
+                    "tool_name": i.tool_call.tool_name,
+                    "args": i.tool_call.args,
+                }
+                if i.tool_call
+                else None,
+                "tool_result": {
+                    "status": i.tool_result.status.value,
+                    "output": i.tool_result.output,
+                    "error": i.tool_result.error,
+                }
+                if i.tool_result
+                else None,
+                "done": {
+                    "final_output": i.done.final_output,
+                    "reason": i.done.reason,
+                }
+                if i.done
+                else None,
+                "policy_decision": {
+                    "allowed": i.policy_decision.allowed,
+                    "reason": i.policy_decision.reason,
+                }
+                if i.policy_decision
+                else None,
+            }
+            for i in result.iterations
+        ],
+    }
+    print(json.dumps(output, indent=2, default=str))
+
+
 if __name__ == "__main__":
     app()

@@ -1,0 +1,43 @@
+# Example policy for agent tasks
+# This policy allows common read operations and limited shell commands
+
+tools:
+  # File reading - allow reading most files in the project
+  fs_read:
+    allow_paths:
+      - "./**"              # All files in current directory
+    deny_paths:
+      - "**/.env"           # Never read .env files
+      - "**/*.key"          # Never read key files
+      - "**/secrets/**"     # Never read secrets
+    allow_hidden: false     # Don't read hidden files by default
+
+  # File writing - restricted to specific output locations
+  fs_write:
+    allow_paths:
+      - "./output/**"       # Only write to output directory
+      - "./tmp/**"          # Temp files
+    max_size_bytes: 1048576 # 1MB max file size
+
+  # Shell commands - only safe read-only commands
+  shell_run:
+    allow_executables:
+      - "ls"
+      - "find"
+      - "wc"
+      - "cat"
+      - "head"
+      - "tail"
+      - "grep"
+      - "echo"
+      - "pwd"
+      - "date"
+    timeout_seconds: 30
+
+  # HTTP - disabled by default
+  http_get:
+    allow_domains: []
+
+# Global settings
+global_timeout_seconds: 300
+max_calls_per_tool: 50

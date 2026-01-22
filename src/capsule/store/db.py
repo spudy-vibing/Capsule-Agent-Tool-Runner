@@ -99,10 +99,25 @@ CREATE TABLE IF NOT EXISTS tool_results (
     FOREIGN KEY (run_id) REFERENCES runs(run_id)
 );
 
+-- Planner proposals table: records of what the planner proposed
+CREATE TABLE IF NOT EXISTS planner_proposals (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    iteration INTEGER NOT NULL,
+    proposal_type TEXT NOT NULL,  -- 'tool_call' or 'done'
+    tool_name TEXT,
+    args_json TEXT,
+    reasoning TEXT,
+    raw_response TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_tool_calls_run_id ON tool_calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_tool_results_run_id ON tool_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at);
+CREATE INDEX IF NOT EXISTS idx_planner_proposals_run_id ON planner_proposals(run_id);
 """
 
 
@@ -677,6 +692,105 @@ class CapsuleDB:
         except sqlite3.Error as e:
             raise StorageReadError(
                 operation="get_result_for_call",
+                underlying_error=str(e),
+            ) from e
+
+    # =========================================================================
+    # Planner Proposal Operations
+    # =========================================================================
+
+    def record_planner_proposal(
+        self,
+        run_id: str,
+        iteration: int,
+        proposal_type: str,
+        tool_name: str | None = None,
+        args: dict[str, Any] | None = None,
+        reasoning: str | None = None,
+        raw_response: str | None = None,
+    ) -> str:
+        """
+        Record a planner proposal.
+
+        Args:
+            run_id: The run this proposal belongs to
+            iteration: Iteration number
+            proposal_type: 'tool_call' or 'done'
+            tool_name: Name of the tool (if tool_call)
+            args: Arguments for the tool (if tool_call)
+            reasoning: Planner's reasoning
+            raw_response: Raw response from the planner
+
+        Returns:
+            The generated proposal ID
+        """
+        proposal_id = generate_id()
+        args_json = json.dumps(args, default=str) if args else None
+
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO planner_proposals (
+                    id, run_id, iteration, proposal_type, tool_name,
+                    args_json, reasoning, raw_response, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    proposal_id,
+                    run_id,
+                    iteration,
+                    proposal_type,
+                    tool_name,
+                    args_json,
+                    reasoning,
+                    raw_response,
+                    now_iso(),
+                ),
+            )
+            self._conn.commit()
+            return proposal_id
+        except sqlite3.Error as e:
+            raise StorageWriteError(
+                operation="record_planner_proposal",
+                underlying_error=str(e),
+            ) from e
+
+    def get_proposals_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        """
+        Get all planner proposals for a run.
+
+        Args:
+            run_id: The run to get proposals for
+
+        Returns:
+            List of proposal dictionaries, ordered by iteration
+        """
+        try:
+            cursor = self._conn.execute(
+                """
+                SELECT * FROM planner_proposals
+                WHERE run_id = ?
+                ORDER BY iteration
+                """,
+                (run_id,),
+            )
+            proposals = []
+            for row in cursor:
+                proposals.append({
+                    "id": row["id"],
+                    "run_id": row["run_id"],
+                    "iteration": row["iteration"],
+                    "proposal_type": row["proposal_type"],
+                    "tool_name": row["tool_name"],
+                    "args": json.loads(row["args_json"]) if row["args_json"] else None,
+                    "reasoning": row["reasoning"],
+                    "raw_response": row["raw_response"],
+                    "created_at": row["created_at"],
+                })
+            return proposals
+        except sqlite3.Error as e:
+            raise StorageReadError(
+                operation="get_proposals_for_run",
                 underlying_error=str(e),
             ) from e
 
