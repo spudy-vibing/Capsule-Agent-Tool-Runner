@@ -37,6 +37,7 @@ from capsule.schema import (
     PlanStep,
     PolicyDecision,
     RunMode,
+    RunStatus,
     ToolCall,
     ToolCallStatus,
     ToolResult,
@@ -272,6 +273,38 @@ class AgentLoop:
 
         # Calculate total duration
         result.total_duration_seconds = time.time() - start_time
+
+        # Count step statistics from iterations
+        completed_steps = 0
+        denied_steps = 0
+        failed_steps = 0
+        for it in result.iterations:
+            if it.tool_result:
+                if it.tool_result.status == ToolCallStatus.SUCCESS:
+                    completed_steps += 1
+                elif it.tool_result.status == ToolCallStatus.DENIED:
+                    denied_steps += 1
+                elif it.tool_result.status == ToolCallStatus.ERROR:
+                    failed_steps += 1
+
+        # Map agent status to RunStatus
+        if result.status == "completed":
+            run_status = RunStatus.COMPLETED
+        elif result.status == "error":
+            run_status = RunStatus.FAILED
+        else:
+            # timeout, max_iterations, repetition_detected all map to completed
+            # (they finished, just not successfully in the task sense)
+            run_status = RunStatus.COMPLETED
+
+        # Update run status in database
+        self.db.update_run_status(
+            run_id=run_id,
+            status=run_status,
+            completed_steps=completed_steps,
+            denied_steps=denied_steps,
+            failed_steps=failed_steps,
+        )
 
         return result
 
