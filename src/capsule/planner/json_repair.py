@@ -257,7 +257,10 @@ def validate_tool_call_json(data: Any) -> tuple[bool, str | None]:
     if "done" in data:
         if not isinstance(data.get("done"), bool):
             return False, "'done' must be a boolean"
-        return True, None
+        if data.get("done") is True:
+            # Valid done signal - task complete
+            return True, None
+        # done: false is not valid on its own - fall through to require "tool"
 
     # Check for tool call
     if "tool" not in data:

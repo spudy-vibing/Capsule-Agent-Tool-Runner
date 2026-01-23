@@ -381,8 +381,15 @@ class TestValidateToolCallJson:
         assert error is None
 
     def test_validate_done_false(self):
-        """Test validating done: false (should still be valid if tool present)."""
-        # done: false should still require tool
+        """Test validating done: false requires a tool field."""
+        # done: false alone is invalid - must have tool
         data = {"done": False}
-        is_valid, _error = validate_tool_call_json(data)
-        assert is_valid  # done is present, so it's a valid done signal
+        is_valid, error = validate_tool_call_json(data)
+        assert not is_valid
+        assert "tool" in error.lower()
+
+        # done: false WITH a tool is valid
+        data_with_tool = {"done": False, "tool": "fs.read", "args": {"path": "."}}
+        is_valid, error = validate_tool_call_json(data_with_tool)
+        assert is_valid
+        assert error is None
