@@ -1,8 +1,8 @@
 # Pack System Implementation Checkpoint
 
-**Date:** 2026-01-22
+**Date:** 2026-01-23
 **Version:** v0.2.0-alpha.3 (in progress)
-**Status:** Debugging pack run integration
+**Status:** Anti-hallucination fixes implemented, ready for testing
 
 ---
 
@@ -49,84 +49,104 @@ capsule pack run <name> [options]    # Execute pack
 
 ### Tests ✓
 
-- **634 tests passing**
+- **655 tests passing** (21 new validation tests)
 - `tests/unit/test_pack_manifest.py` - 31 tests
 - `tests/unit/test_pack_loader.py` - 39 tests
 - `tests/integration/test_pack_integration.py` - 27 tests
+- `tests/unit/test_agent_validation.py` - 21 tests (NEW)
 
 ---
 
-## Current Issue
+## Issues Fixed (2026-01-23)
 
-### Symptom
+### Issue 1: KeyError 'tool' on Second Iteration ✓
 
-```bash
-capsule pack run local-doc-auditor --input target_directory=src --model qwen2.5:7b
-```
+**Root Cause:** Validation in `json_repair.py` accepted `{"done": false}` as valid, but `ollama.py` only handled `done: true` before accessing `parsed["tool"]`.
 
-- First iteration: **SUCCESS** (shell.run executes)
-- Second iteration: **ERROR** `'tool'` (KeyError)
+**Fix:** `src/capsule/planner/json_repair.py:256-261`
+- `done: true` → valid done signal
+- `done: false` → falls through to require `tool` field
 
-### Investigation Done
+### Issue 2: Model Hallucinating File Paths ✓
 
-1. **Changed OllamaPlanner to use `.replace()` instead of `.format()`**
-   - File: `src/capsule/planner/ollama.py:195-198`
-   - Reason: `.format()` interprets all `{...}` as placeholders, breaking regex patterns like `{16}`
+**Root Cause:**
+1. System prompt contained example file paths that SLMs copied
+2. Prompt was too long (108 lines) causing SLMs to lose focus
+3. No validation that output referenced actual files
 
-2. **Restructured combined system prompt**
-   - Put JSON format instructions at the TOP (models pay more attention to start)
-   - File: `src/capsule/cli.py:1825-1846`
+**Fixes Applied:**
 
-3. **Verified model returns valid JSON when tested directly**
-   - Direct Ollama API calls work correctly
-   - Model returns `{"tool": "...", "args": {...}}` as expected
+1. **Rewrote system prompt** (`packs/local_doc_auditor/prompts/system.txt`)
+   - Reduced from 108 lines to 54 lines
+   - Anti-hallucination rules at TOP of prompt
+   - Removed example file paths
+   - Clear step-by-step workflow
+   - Explicit "NEVER fabricate paths" instruction
 
-4. **The KeyError `'tool'` source not yet found**
-   - Not from `.format()` (we use `.replace()` now)
-   - Not from JSON parsing (validation checks for 'tool' key)
-   - Occurs on second iteration, after first succeeds
+2. **Added ExecutionContext tracking** (`src/capsule/agent/loop.py`)
+   - Tracks files read via `fs.read`
+   - Tracks commands run via `shell.run`
+   - Records all tool calls for validation
 
-### Suspects
-
-- Something in the history processing on iteration 2
-- Possibly in `_build_prompt` or response parsing
-- Need to add debug logging to trace exact location
+3. **Added output validation** (`src/capsule/agent/validation.py`)
+   - Extracts file paths from model output
+   - Compares against actually accessed files
+   - Reports hallucinated paths as warnings
+   - Integrated into CLI display
 
 ---
 
 ## Key Code Locations
 
-### Pack prompt integration (CLI)
+### Pack prompt (rewritten)
 ```
-src/capsule/cli.py:1821-1856
+packs/local_doc_auditor/prompts/system.txt
 ```
-- Builds `combined_system_prompt` with pack prompt + JSON format instructions
-- Passes to `OllamaConfig.system_prompt`
+- 54 lines (was 108)
+- Anti-hallucination rules first
+- No example file paths
 
-### OllamaPlanner prompt building
+### ExecutionContext tracking
 ```
-src/capsule/planner/ollama.py:186-238
+src/capsule/agent/loop.py:97-144
 ```
-- `_build_prompt()` creates messages for Ollama
-- Uses `.replace()` for `{tool_schemas}` and `{policy_summary}`
+- `ExecutionContext` dataclass
+- `record_tool_call()` method
+- `was_file_accessed()` validation
 
-### Agent loop iteration
+### Output validation
 ```
-src/capsule/agent/loop.py:311-443
+src/capsule/agent/validation.py
 ```
-- `_run_iteration()` calls planner, evaluates policy, executes tool
+- `extract_file_paths()` - finds paths in output
+- `validate_output()` - compares to accessed files
+- `format_validation_result()` - display helper
+
+### CLI integration
+```
+src/capsule/cli.py:1884-1897
+```
+- Validates output after agent run
+- Displays warnings for hallucinated paths
 
 ---
 
 ## Next Steps
 
-1. Add debug logging to trace where `'tool'` KeyError originates
-2. Check if error is in:
-   - Response parsing (`_parse_response`)
-   - History building (`_build_prompt` with history)
-   - Somewhere else in agent loop
-3. Test with simpler prompts to isolate
-4. Consider testing with different models
+1. **Test the fix** with actual model:
+   ```bash
+   capsule pack run local-doc-auditor --input target_directory=docs --model qwen2.5:7b --verbose
+   ```
+
+2. **If hallucinations persist:**
+   - Try larger model (qwen2.5:14b)
+   - Add more explicit grounding in prompt
+   - Consider model-specific prompt tuning
+
+3. **For v0.2.0-beta.1:**
+   - Update repo-analyst pack with same anti-hallucination patterns
+   - Add pack authoring documentation
+   - Consider adding `--strict` flag for validation
 
 ---
 

@@ -96,6 +96,54 @@ class IterationResult:
 
 
 @dataclass
+class ExecutionContext:
+    """
+    Tracks what resources were actually accessed during execution.
+
+    This is used to validate that the model's output only references
+    files and data that were actually accessed via tool calls, helping
+    detect hallucinated results.
+
+    Attributes:
+        files_read: Set of file paths read via fs.read
+        commands_run: List of commands executed via shell.run
+        tool_calls: List of all (tool_name, args) tuples called
+    """
+
+    files_read: set[str] = field(default_factory=set)
+    commands_run: list[str] = field(default_factory=list)
+    tool_calls: list[tuple[str, dict]] = field(default_factory=list)
+
+    def record_tool_call(self, tool_name: str, args: dict[str, Any]) -> None:
+        """Record a tool call and extract relevant access information."""
+        self.tool_calls.append((tool_name, args))
+
+        # Track file reads
+        if tool_name == "fs.read":
+            path = args.get("path")
+            if path:
+                self.files_read.add(str(path))
+
+        # Track shell commands
+        elif tool_name == "shell.run":
+            command = args.get("command")
+            if command:
+                self.commands_run.append(str(command))
+
+    def was_file_accessed(self, file_path: str) -> bool:
+        """Check if a file path was actually read during execution."""
+        # Normalize path for comparison
+        normalized = str(file_path).strip()
+        return normalized in self.files_read or any(
+            normalized in f for f in self.files_read
+        )
+
+    def get_accessed_files(self) -> list[str]:
+        """Return sorted list of all files that were read."""
+        return sorted(self.files_read)
+
+
+@dataclass
 class AgentResult:
     """
     Final result of an agent run.
@@ -113,6 +161,7 @@ class AgentResult:
         total_duration_seconds: Total time taken
         planner_name: Name of the planner used
         error_message: Error message if status is "error"
+        execution_context: Tracks files/commands actually accessed
     """
 
     run_id: str
@@ -123,6 +172,7 @@ class AgentResult:
     total_duration_seconds: float = 0.0
     planner_name: str = ""
     error_message: str | None = None
+    execution_context: ExecutionContext = field(default_factory=ExecutionContext)
 
 
 class AgentLoop:
@@ -206,12 +256,16 @@ class AgentLoop:
             mode=RunMode.RUN,
         )
 
+        # Initialize execution context to track accessed resources
+        execution_context = ExecutionContext()
+
         # Initialize result
         result = AgentResult(
             run_id=run_id,
             task=task,
             status="running",
             planner_name=self.planner.get_name(),
+            execution_context=execution_context,
         )
 
         # History of (ToolCall, ToolResult) pairs for the planner
@@ -234,6 +288,7 @@ class AgentLoop:
                     iteration=iteration,
                     history=history,
                     last_result=last_result,
+                    execution_context=execution_context,
                 )
                 result.iterations.append(iter_result)
 
@@ -316,6 +371,7 @@ class AgentLoop:
         iteration: int,
         history: list[tuple[ToolCall, ToolResult]],
         last_result: ToolResult | None,
+        execution_context: ExecutionContext | None = None,
     ) -> IterationResult:
         """
         Run a single iteration of the agent loop.
@@ -335,6 +391,7 @@ class AgentLoop:
             iteration: Current iteration number
             history: History of previous calls
             last_result: Result of the last tool call
+            execution_context: Context for tracking accessed resources
 
         Returns:
             IterationResult capturing what happened
@@ -427,6 +484,10 @@ class AgentLoop:
         # Policy allowed - execute the tool
         tool_output = self._execute_tool(tool_call, working_dir)
         ended_at = datetime.now(UTC)
+
+        # Record the tool call in execution context for validation
+        if execution_context is not None:
+            execution_context.record_tool_call(tool_call.tool_name, tool_call.args)
 
         # Create tool result
         if tool_output.success:

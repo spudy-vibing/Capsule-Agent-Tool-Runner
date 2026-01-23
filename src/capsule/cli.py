@@ -1141,7 +1141,7 @@ def agent_run(
         raise typer.Exit(code=1)
 
 
-def _display_agent_result(result, verbose: bool) -> None:
+def _display_agent_result(result, verbose: bool, validation=None) -> None:
     """Display agent results in a formatted way."""
     from capsule.schema import ToolCallStatus
 
@@ -1263,6 +1263,26 @@ def _display_agent_result(result, verbose: bool) -> None:
         f"Failed: {failed}[/dim]"
     )
 
+    # Show validation results if present
+    if validation is not None:
+        console.print()
+        if validation.hallucinated_paths:
+            console.print("[yellow]⚠ Output Validation Warning[/yellow]")
+            console.print(
+                f"[yellow]  Found {len(validation.hallucinated_paths)} path(s) not accessed during execution:[/yellow]"
+            )
+            for path in validation.hallucinated_paths[:5]:
+                console.print(f"[yellow]    - {path}[/yellow]")
+            if len(validation.hallucinated_paths) > 5:
+                console.print(f"[yellow]    ... and {len(validation.hallucinated_paths) - 5} more[/yellow]")
+
+            if validation.accessed_paths:
+                console.print(f"[dim]  Actually accessed: {', '.join(validation.accessed_paths[:3])}[/dim]")
+        elif validation.accessed_paths:
+            console.print("[green]✓ Output validation passed[/green]")
+            if verbose:
+                console.print(f"[dim]  Files accessed: {len(validation.accessed_paths)}[/dim]")
+
 
 def _display_agent_result_pretty(result, task: str) -> None:
     """Display agent results in human-readable format with full tool outputs."""
@@ -1379,7 +1399,7 @@ def _display_agent_result_pretty(result, task: str) -> None:
     console.print(f"[dim]─── {total} steps, {successful} successful ───[/dim]")
 
 
-def _output_agent_json_result(result) -> None:
+def _output_agent_json_result(result, validation=None) -> None:
     """Output agent results in JSON format."""
     from capsule.schema import ToolCallStatus
 
@@ -1424,6 +1444,16 @@ def _output_agent_json_result(result) -> None:
             for i in result.iterations
         ],
     }
+
+    # Add validation results if present
+    if validation is not None:
+        output["validation"] = {
+            "is_valid": validation.is_valid,
+            "hallucinated_paths": validation.hallucinated_paths,
+            "accessed_paths": validation.accessed_paths,
+            "warnings": validation.warnings,
+        }
+
     print(json.dumps(output, indent=2, default=str))
 
 
@@ -1883,11 +1913,19 @@ REMEMBER: Respond with ONLY valid JSON. Your response must start with {{ and end
 
             result = loop.run(task=task, working_dir=Path.cwd())
 
+            # Validate output against execution context
+            from capsule.agent.validation import validate_output, format_validation_result
+            validation = validate_output(
+                result.final_output,
+                result.execution_context,
+                strict=False,  # Warn but don't fail
+            )
+
             # Output results
             if json_output:
-                _output_agent_json_result(result)
+                _output_agent_json_result(result, validation)
             else:
-                _display_agent_result(result, verbose)
+                _display_agent_result(result, verbose, validation)
 
             # Cleanup
             db.close()
