@@ -1,0 +1,42 @@
+# Policy for Local Doc Auditor Pack
+# Read-only filesystem access, no network or shell
+
+boundary: deny_by_default
+global_timeout_seconds: 300
+max_calls_per_tool: 500
+
+tools:
+  # Allow reading files in the scanned directory
+  # Note: The actual path restriction is enforced via the input validation
+  # and prompt instructions. The policy here is permissive to allow
+  # the planner flexibility while the prompt constrains behavior.
+  fs.read:
+    allow_paths:
+      - "**/*"
+    deny_paths:
+      - "**/.git/**"
+      - "**/node_modules/**"
+      - "**/__pycache__/**"
+      - "**/.venv/**"
+      - "**/venv/**"
+      - "**/.env.local"
+    max_size_bytes: 1048576
+    allow_hidden: true
+
+  # No write access
+  fs.write:
+    allow_paths: []
+
+  # No network access
+  http.get:
+    allow_domains: []
+
+  # Limited shell access for listing files only
+  shell.run:
+    allow_executables:
+      - find
+      - ls
+    deny_tokens:
+      - "-exec"
+      - "-delete"
+      - "rm"

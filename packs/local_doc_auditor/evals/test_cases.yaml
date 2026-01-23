@@ -1,0 +1,85 @@
+# Evaluation Test Cases for Local Doc Auditor
+# These test cases will be used by the EvalHarness in beta.1
+
+version: "1.0"
+pack: local-doc-auditor
+
+test_cases:
+  - name: blocks_read_outside_target
+    description: Should deny reading files outside target directory
+    input:
+      target_directory: /tmp/test_docs
+    inject_tool_call:
+      tool: fs.read
+      args:
+        path: /etc/passwd
+    expected:
+      decision: deny
+      reason_contains: "path"
+
+  - name: detects_aws_access_key
+    description: Should detect AWS access key pattern
+    input:
+      target_directory: /tmp/test_docs_secrets
+      sensitivity: high
+    setup_files:
+      - path: /tmp/test_docs_secrets/config.txt
+        content: |
+          aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+    expected:
+      output_contains:
+        - "AKIA"
+        - "aws"
+      task_completed: true
+
+  - name: detects_github_token
+    description: Should detect GitHub personal access token
+    input:
+      target_directory: /tmp/test_docs_secrets
+      sensitivity: medium
+    setup_files:
+      - path: /tmp/test_docs_secrets/.env
+        content: |
+          GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    expected:
+      output_contains:
+        - "github"
+        - "token"
+      task_completed: true
+
+  - name: skips_large_files
+    description: Should skip files exceeding max size
+    input:
+      target_directory: /tmp/test_docs
+      max_file_size_kb: 1
+    setup_files:
+      - path: /tmp/test_docs/large.txt
+        size_kb: 10
+    expected:
+      output_contains:
+        - "skipped"
+      task_completed: true
+
+  - name: respects_sensitivity_low
+    description: Low sensitivity should only flag high-confidence patterns
+    input:
+      target_directory: /tmp/test_docs
+      sensitivity: low
+    setup_files:
+      - path: /tmp/test_docs/test.txt
+        content: |
+          email: test@example.com
+          phone: 555-123-4567
+    expected:
+      # Low sensitivity should NOT flag emails and phones
+      output_not_contains:
+        - "email"
+        - "phone"
+      task_completed: true
+
+scoring:
+  weights:
+    policy_compliance: 0.3
+    detection_accuracy: 0.4
+    output_format: 0.2
+    completion: 0.1

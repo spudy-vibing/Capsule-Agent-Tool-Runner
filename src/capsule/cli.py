@@ -1427,5 +1427,492 @@ def _output_agent_json_result(result) -> None:
     print(json.dumps(output, indent=2, default=str))
 
 
+# =============================================================================
+# Pack Subcommand Group
+# =============================================================================
+
+pack_app = typer.Typer(
+    name="pack",
+    help="Manage and run Capsule packs.",
+    no_args_is_help=True,
+)
+app.add_typer(pack_app, name="pack")
+
+
+@pack_app.command("list")
+def pack_list(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output in JSON format."),
+    ] = False,
+) -> None:
+    """List available packs (bundled and discovered)."""
+    from capsule.pack.loader import PackLoader
+
+    try:
+        packs = PackLoader.list_bundled_packs()
+
+        if json_output:
+            output = {
+                "packs": packs,
+                "count": len(packs),
+            }
+            print(json.dumps(output, indent=2))
+        else:
+            if not packs:
+                console.print("[dim]No packs found.[/dim]")
+                console.print()
+                console.print(
+                    "[dim]Packs should be in the 'packs/' directory with a manifest.yaml file.[/dim]"
+                )
+            else:
+                console.print(f"[bold]Available Packs ({len(packs)})[/bold]")
+                console.print()
+                for pack_name in packs:
+                    try:
+                        loader = PackLoader.resolve_pack(pack_name)
+                        manifest = loader.manifest
+                        desc = manifest.description[:60] + "..." if len(manifest.description) > 60 else manifest.description
+                        console.print(f"  [cyan]{pack_name}[/cyan] v{manifest.version}")
+                        if desc:
+                            console.print(f"    [dim]{desc}[/dim]")
+                    except Exception:
+                        console.print(f"  [cyan]{pack_name}[/cyan] [red](error loading)[/red]")
+
+        raise typer.Exit(code=0)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("pack_list_error", str(e), False)
+        else:
+            console.print(f"[red]Error listing packs: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@pack_app.command("info")
+def pack_info(
+    pack_name: Annotated[
+        str,
+        typer.Argument(help="Pack name or path to pack directory."),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output in JSON format."),
+    ] = False,
+) -> None:
+    """Show detailed information about a pack."""
+    from capsule.pack.loader import PackLoader
+
+    try:
+        loader = PackLoader.resolve_pack(pack_name)
+        manifest = loader.manifest
+
+        if json_output:
+            output = {
+                "name": manifest.name,
+                "version": manifest.version,
+                "description": manifest.description,
+                "author": manifest.author,
+                "license": manifest.license,
+                "tags": manifest.tags,
+                "capsule_version": manifest.capsule_version,
+                "tools_required": manifest.tools_required,
+                "yaml_entry": manifest.yaml_entry,
+                "prompt_template": manifest.prompt_template,
+                "policy": "policy.yaml",
+                "inputs": {
+                    name: {
+                        "type": schema.type,
+                        "required": schema.required,
+                        "default": schema.default,
+                        "description": schema.description,
+                        "enum": schema.enum,
+                    }
+                    for name, schema in manifest.inputs.items()
+                },
+                "outputs": {
+                    name: {
+                        "type": schema.type,
+                        "description": schema.description,
+                    }
+                    for name, schema in manifest.outputs.items()
+                },
+                "pack_path": str(loader.pack_path),
+            }
+            print(json.dumps(output, indent=2))
+        else:
+            console.print(f"[bold cyan]{manifest.name}[/bold cyan] v{manifest.version}")
+            console.print()
+
+            if manifest.description:
+                console.print(f"[bold]Description:[/bold] {manifest.description}")
+
+            if manifest.author:
+                console.print(f"[bold]Author:[/bold] {manifest.author}")
+
+            console.print(f"[bold]License:[/bold] {manifest.license}")
+
+            if manifest.tags:
+                console.print(f"[bold]Tags:[/bold] {', '.join(manifest.tags)}")
+
+            console.print(f"[bold]Capsule Version:[/bold] {manifest.capsule_version}")
+            console.print()
+
+            console.print(f"[bold]Tools Required:[/bold] {', '.join(manifest.tools_required) or 'none'}")
+            console.print(f"[bold]YAML Entry:[/bold] {manifest.yaml_entry or 'none (agent-only)'}")
+            console.print(f"[bold]Prompt Template:[/bold] {manifest.prompt_template or 'none'}")
+            console.print("[bold]Policy:[/bold] policy.yaml")
+            console.print()
+
+            if manifest.inputs:
+                console.print("[bold]Inputs:[/bold]")
+                for name, schema in manifest.inputs.items():
+                    req = "[red]*[/red]" if schema.required else ""
+                    default = f" (default: {schema.default})" if schema.default is not None else ""
+                    console.print(f"  {req}[cyan]{name}[/cyan]: {schema.type}{default}")
+                    if schema.description:
+                        console.print(f"    [dim]{schema.description}[/dim]")
+                    if schema.enum:
+                        console.print(f"    [dim]Allowed: {', '.join(schema.enum)}[/dim]")
+                console.print()
+
+            if manifest.outputs:
+                console.print("[bold]Outputs:[/bold]")
+                for name, schema in manifest.outputs.items():
+                    console.print(f"  [cyan]{name}[/cyan]: {schema.type}")
+                    if schema.description:
+                        console.print(f"    [dim]{schema.description}[/dim]")
+                console.print()
+
+            console.print(f"[dim]Pack path: {loader.pack_path}[/dim]")
+
+        raise typer.Exit(code=0)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("pack_info_error", str(e), False)
+        else:
+            console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@pack_app.command("validate")
+def pack_validate(
+    pack_path: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to pack directory.",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output in JSON format."),
+    ] = False,
+) -> None:
+    """Validate a pack's structure and manifest."""
+    from capsule.pack.loader import PackLoader
+
+    try:
+        loader = PackLoader(pack_path)
+        errors = loader.validate_structure()
+
+        if json_output:
+            output = {
+                "valid": len(errors) == 0,
+                "errors": errors,
+                "pack_path": str(pack_path),
+            }
+            if len(errors) == 0:
+                output["manifest"] = {
+                    "name": loader.manifest.name,
+                    "version": loader.manifest.version,
+                }
+            print(json.dumps(output, indent=2))
+        else:
+            if errors:
+                console.print(f"[red]Pack validation failed: {len(errors)} error(s)[/red]")
+                console.print()
+                for error in errors:
+                    console.print(f"  [red]•[/red] {error}")
+            else:
+                manifest = loader.manifest
+                console.print(f"[green]✓[/green] Pack [cyan]{manifest.name}[/cyan] v{manifest.version} is valid")
+
+        raise typer.Exit(code=0 if len(errors) == 0 else 1)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("pack_validate_error", str(e), False)
+        else:
+            console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@pack_app.command("run")
+def pack_run(
+    pack_name: Annotated[
+        str,
+        typer.Argument(help="Pack name or path to pack directory."),
+    ],
+    input_args: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--input",
+            "-i",
+            help="Input argument in key=value format. Can be repeated.",
+        ),
+    ] = None,
+    policy_path: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--policy",
+            "-p",
+            help="Path to policy YAML file (overrides pack policy).",
+            exists=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    mode: Annotated[
+        str,
+        typer.Option(
+            "--mode",
+            "-m",
+            help="Execution mode: 'agent' (planner-driven) or 'yaml' (plan-based).",
+        ),
+    ] = "agent",
+    planner_backend: Annotated[
+        str,
+        typer.Option("--planner", help="Planner backend to use."),
+    ] = "ollama",
+    model: Annotated[
+        str,
+        typer.Option("--model", help="Model name for the planner."),
+    ] = "qwen2.5:0.5b",
+    max_iterations: Annotated[
+        int,
+        typer.Option("--max-iterations", help="Maximum agent iterations."),
+    ] = 50,
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--out",
+            "-o",
+            help="Path to output SQLite database.",
+            resolve_path=True,
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output in JSON format."),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Enable verbose output."),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="Enable debug output with tracebacks."),
+    ] = False,
+) -> None:
+    """Execute a pack in agent or YAML mode."""
+    from capsule.pack.loader import PackLoader
+    from capsule.schema import load_policy
+
+    try:
+        # Load pack
+        loader = PackLoader.resolve_pack(pack_name)
+        manifest = loader.manifest
+
+        if verbose and not json_output:
+            console.print(f"[bold]Running pack:[/bold] {manifest.name} v{manifest.version}")
+            console.print()
+
+        # Parse input arguments
+        inputs = {}
+        if input_args:
+            for arg in input_args:
+                if "=" not in arg:
+                    raise ValueError(f"Invalid input format: {arg}. Expected key=value")
+                key, value = arg.split("=", 1)
+                # Try to parse JSON for complex values
+                try:
+                    inputs[key] = json.loads(value)
+                except json.JSONDecodeError:
+                    inputs[key] = value
+
+        # Validate and apply defaults
+        validated_inputs = loader.get_validated_inputs(inputs)
+
+        if verbose and not json_output:
+            console.print("[bold]Inputs:[/bold]")
+            for key, value in validated_inputs.items():
+                console.print(f"  {key}: {value}")
+            console.print()
+
+        # Load/merge policy
+        if policy_path:
+            policy = load_policy(policy_path)
+        else:
+            policy = loader.load_policy()
+
+        # Choose execution mode
+        if mode == "yaml":
+            # YAML mode: run static plan
+            plan = loader.get_plan()
+            if plan is None:
+                raise ValueError(
+                    f"Pack '{manifest.name}' has no YAML entry. Use --mode agent instead."
+                )
+
+            # Run via engine
+            db_path = output or Path("capsule.db")
+
+            with Engine(db_path=db_path, working_dir=Path.cwd()) as engine:
+                result = engine.run(plan, policy, fail_fast=False)
+
+                if json_output:
+                    _output_json_result(result)
+                else:
+                    _display_run_result(result, verbose)
+
+                raise typer.Exit(code=0 if result.success else 1)
+
+        elif mode == "agent":
+            # Agent mode: run with planner
+            from capsule.agent.loop import AgentConfig, AgentLoop
+            from capsule.planner.ollama import OllamaConfig, OllamaPlanner
+            from capsule.policy.engine import PolicyEngine
+            from capsule.store.db import CapsuleDB
+            from capsule.tools.registry import default_registry
+
+            # Check planner backend
+            if planner_backend != "ollama":
+                raise ValueError(f"Unknown planner backend: {planner_backend}. Only 'ollama' is supported.")
+
+            # Render pack system prompt if available
+            pack_prompt = None
+            if manifest.prompt_template:
+                pack_prompt = loader.render_prompt(validated_inputs)
+                if verbose and not json_output:
+                    console.print("[bold]Pack Prompt:[/bold]")
+                    console.print(f"[dim]{pack_prompt[:500]}...[/dim]" if len(pack_prompt) > 500 else f"[dim]{pack_prompt}[/dim]")
+                    console.print()
+
+            # Create combined system prompt that includes:
+            # 1. Pack's task-specific instructions
+            # 2. OllamaPlanner's JSON response format rules
+            # Note: Double braces {{ and }} are literal braces in f-strings
+            # Note: {policy_summary} is included even though pack prompt may already
+            #       have it via Jinja2, because OllamaPlanner's .format() expects it
+            # IMPORTANT: Escape braces in pack_prompt because OllamaPlanner calls
+            #            .format() on the system prompt, and pack prompts may contain
+            #            regex patterns with braces like {16} or {3,}
+            if pack_prompt:
+                # Build combined system prompt with JSON format instructions at the top
+                # OllamaPlanner uses .replace() for {tool_schemas} and {policy_summary}
+                # so we can use literal braces in the JSON examples
+                combined_system_prompt = f"""## CRITICAL: Response Format
+
+You MUST respond with ONLY a valid JSON object. No markdown, no explanations, ONLY JSON.
+
+To call a tool: {{"tool": "tool_name", "args": {{...}}}}
+When complete: {{"done": true, "reason": "task_complete", "output": "your_summary"}}
+
+Available tools:
+{{tool_schemas}}
+
+Policy constraints:
+{{policy_summary}}
+
+---
+
+## Your Task
+
+{pack_prompt}
+
+---
+
+REMEMBER: Respond with ONLY valid JSON. Your response must start with {{ and end with }}."""
+            else:
+                # Use default OllamaPlanner prompt
+                combined_system_prompt = None
+
+            # Initialize planner with combined prompt
+            ollama_config = OllamaConfig(
+                model=model,
+                system_prompt=combined_system_prompt,
+            )
+            planner = OllamaPlanner(ollama_config)
+
+            # Check planner connection
+            ok, message = planner.check_connection()
+            if not ok:
+                if not json_output:
+                    console.print(f"[red]Planner not available: {message}[/red]")
+                    console.print("[dim]Run 'capsule doctor' to check your setup.[/dim]")
+                raise typer.Exit(code=1)
+
+            # Build task description - just the inputs, not the full prompt
+            task = f"Execute the task described in the system prompt with these inputs: {json.dumps(validated_inputs)}"
+
+            # Initialize components
+            policy_engine = PolicyEngine(policy)
+            db_path = output or Path("capsule.db")
+            db = CapsuleDB(db_path)
+            agent_config = AgentConfig(max_iterations=max_iterations)
+
+            # Create and run agent loop
+            loop = AgentLoop(
+                planner=planner,
+                policy_engine=policy_engine,
+                registry=default_registry,
+                db=db,
+                config=agent_config,
+            )
+
+            result = loop.run(task=task, working_dir=Path.cwd())
+
+            # Output results
+            if json_output:
+                _output_agent_json_result(result)
+            else:
+                _display_agent_result(result, verbose)
+
+            # Cleanup
+            db.close()
+            planner.close()
+
+            # Exit with appropriate code
+            if result.status == "completed":
+                raise typer.Exit(code=0)
+            else:
+                raise typer.Exit(code=1)
+
+        else:
+            raise ValueError(f"Unknown mode: {mode}. Use 'agent' or 'yaml'.")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("pack_run_error", str(e), debug)
+        else:
+            console.print(f"[red]Error: {e}[/red]")
+            if debug:
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()

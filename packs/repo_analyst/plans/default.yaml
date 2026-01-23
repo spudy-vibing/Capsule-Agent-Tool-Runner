@@ -1,0 +1,48 @@
+# Default YAML Plan for Repo Analyst
+# This plan fetches basic repository information in sequence
+# Note: The agent mode is recommended for more intelligent analysis
+
+version: "1.0"
+name: repo-analyst-basic
+description: Fetch basic GitHub repository information
+
+steps:
+  - tool: http.get
+    id: fetch-repo
+    name: Fetch repository metadata
+    args:
+      url: "https://api.github.com/repos/OWNER/REPO"
+      headers:
+        Accept: "application/vnd.github.v3+json"
+        User-Agent: "Capsule-Pack/1.0"
+
+  - tool: http.get
+    id: fetch-contributors
+    name: Fetch top contributors
+    args:
+      url: "https://api.github.com/repos/OWNER/REPO/contributors?per_page=10"
+      headers:
+        Accept: "application/vnd.github.v3+json"
+        User-Agent: "Capsule-Pack/1.0"
+
+  - tool: http.get
+    id: fetch-releases
+    name: Fetch releases
+    args:
+      url: "https://api.github.com/repos/OWNER/REPO/releases?per_page=5"
+      headers:
+        Accept: "application/vnd.github.v3+json"
+        User-Agent: "Capsule-Pack/1.0"
+
+  - tool: http.get
+    id: fetch-languages
+    name: Fetch language breakdown
+    args:
+      url: "https://api.github.com/repos/OWNER/REPO/languages"
+      headers:
+        Accept: "application/vnd.github.v3+json"
+        User-Agent: "Capsule-Pack/1.0"
+
+# Note: In YAML mode, the OWNER/REPO placeholders need to be replaced
+# before execution. This is a limitation - agent mode is preferred
+# for this pack as it can dynamically construct URLs.

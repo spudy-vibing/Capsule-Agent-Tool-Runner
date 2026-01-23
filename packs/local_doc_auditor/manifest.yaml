@@ -1,0 +1,69 @@
+name: local-doc-auditor
+version: "1.0.0"
+description: |
+  Scan directories for secrets, credentials, and PII patterns.
+  Supports regex pattern matching with configurable sensitivity levels.
+author: Capsule Team
+license: MIT
+tags:
+  - security
+  - audit
+  - secrets
+  - pii
+capsule_version: ">=0.2.0"
+
+tools_required:
+  - fs.read
+  - shell.run
+
+# Agent-only pack (no static YAML plan)
+yaml_entry: null
+prompt_template: prompts/system.txt
+# policy.yaml is expected at pack root (convention)
+
+inputs:
+  target_directory:
+    type: string
+    required: true
+    description: Absolute path to directory to scan for secrets and PII
+
+  file_patterns:
+    type: array
+    required: false
+    default: ["*.md", "*.txt", "*.yaml", "*.yml", "*.json", "*.env*", "*.conf", "*.cfg", "*.ini", "*.properties"]
+    description: Glob patterns for files to scan
+
+  sensitivity:
+    type: string
+    required: false
+    default: medium
+    enum: [low, medium, high]
+    description: |
+      Detection sensitivity level:
+      - low: Only high-confidence patterns (API keys, private keys)
+      - medium: Include passwords, tokens, emails
+      - high: Include phone numbers, IPs, potential PII
+
+  output_format:
+    type: string
+    required: false
+    default: summary
+    enum: [summary, detailed, json]
+    description: Output format for the scan results
+
+  max_file_size_kb:
+    type: integer
+    required: false
+    default: 512
+    min_value: 1
+    max_value: 10240
+    description: Skip files larger than this size (in KB)
+
+outputs:
+  findings:
+    type: array
+    description: List of detected secrets and PII with file, line, type, and snippet
+
+  summary:
+    type: object
+    description: Summary statistics including files scanned, findings count by type

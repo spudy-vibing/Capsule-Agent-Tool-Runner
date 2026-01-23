@@ -68,6 +68,14 @@ ERROR_PLANNER_PARSE = 6003
 ERROR_PLANNER_INVALID_RESPONSE = 6004
 ERROR_PLANNER_MODEL_NOT_FOUND = 6005
 
+# Pack errors: 7xxx
+ERROR_PACK_NOT_FOUND = 7001
+ERROR_PACK_INVALID_MANIFEST = 7002
+ERROR_PACK_MISSING_FILE = 7003
+ERROR_PACK_INVALID_INPUT = 7004
+ERROR_PACK_TOOL_NOT_AVAILABLE = 7005
+ERROR_PACK_TEMPLATE_ERROR = 7006
+
 
 # =============================================================================
 # Base Exception
@@ -768,4 +776,197 @@ class PlannerModelNotFoundError(PlannerError):
             else:
                 self.suggestion = f"Pull the model: `ollama pull {self.model}`"
         self.context["available_models"] = self.available_models
+        super().__post_init__()
+
+
+# =============================================================================
+# Pack Errors
+# =============================================================================
+
+
+@dataclass
+class PackError(CapsuleError):
+    """
+    Base class for all pack-related errors.
+
+    Pack errors occur when loading, validating, or executing packs.
+
+    Attributes:
+        pack_name: Name of the pack that caused the error
+        pack_path: Path to the pack directory (if known)
+    """
+
+    pack_name: str = ""
+    pack_path: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        self.context.update({
+            "pack_name": self.pack_name,
+            "pack_path": self.pack_path,
+        })
+
+
+@dataclass
+class PackNotFoundError(PackError):
+    """
+    Raised when a pack cannot be found.
+
+    Common causes:
+    - Typo in pack name
+    - Pack not installed
+    - Pack directory missing
+    """
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Pack not found: {self.pack_name}"
+        if self.code == 0:
+            self.code = ERROR_PACK_NOT_FOUND
+        if not self.suggestion:
+            self.suggestion = (
+                "Check the pack name spelling.\n"
+                "Use `capsule pack list` to see available packs."
+            )
+        super().__post_init__()
+
+
+@dataclass
+class PackManifestError(PackError):
+    """
+    Raised when a pack manifest is invalid.
+
+    Common causes:
+    - Invalid YAML syntax
+    - Missing required fields
+    - Invalid field values
+    """
+
+    validation_error: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Invalid manifest in pack '{self.pack_name}': {self.validation_error}"
+        if self.code == 0:
+            self.code = ERROR_PACK_INVALID_MANIFEST
+        if not self.suggestion:
+            self.suggestion = "Check manifest.yaml for syntax errors and required fields."
+        self.context["validation_error"] = self.validation_error
+        super().__post_init__()
+
+
+@dataclass
+class PackMissingFileError(PackError):
+    """
+    Raised when a required pack file is missing.
+
+    Common causes:
+    - Incomplete pack installation
+    - File deleted or moved
+    """
+
+    missing_file: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Missing file in pack '{self.pack_name}': {self.missing_file}"
+        if self.code == 0:
+            self.code = ERROR_PACK_MISSING_FILE
+        if not self.suggestion:
+            self.suggestion = f"Create the missing file: {self.missing_file}"
+        self.context["missing_file"] = self.missing_file
+        super().__post_init__()
+
+
+@dataclass
+class PackInputError(PackError):
+    """
+    Raised when pack inputs are invalid.
+
+    Common causes:
+    - Missing required input
+    - Invalid input type
+    - Value not in allowed enum
+    - Pattern validation failed
+    """
+
+    input_name: str = ""
+    input_value: Any = None
+    validation_error: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Invalid input '{self.input_name}' for pack '{self.pack_name}': {self.validation_error}"
+        if self.code == 0:
+            self.code = ERROR_PACK_INVALID_INPUT
+        self.context.update({
+            "input_name": self.input_name,
+            "input_value": str(self.input_value)[:100],  # Truncate for safety
+            "validation_error": self.validation_error,
+        })
+        super().__post_init__()
+
+
+@dataclass
+class PackToolNotAvailableError(PackError):
+    """
+    Raised when a pack requires a tool that is not available.
+
+    Common causes:
+    - Tool not registered in Capsule
+    - Tool disabled by policy
+    """
+
+    tool_name: str = ""
+    available_tools: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Pack '{self.pack_name}' requires unavailable tool: {self.tool_name}"
+        if self.code == 0:
+            self.code = ERROR_PACK_TOOL_NOT_AVAILABLE
+        if not self.suggestion:
+            if self.available_tools:
+                tools_str = ", ".join(self.available_tools[:5])
+                self.suggestion = f"Available tools: {tools_str}"
+            else:
+                self.suggestion = "Check that the required tools are registered."
+        self.context.update({
+            "tool_name": self.tool_name,
+            "available_tools": self.available_tools,
+        })
+        super().__post_init__()
+
+
+@dataclass
+class PackTemplateError(PackError):
+    """
+    Raised when a pack template fails to render.
+
+    Common causes:
+    - Invalid Jinja2 syntax
+    - Missing template variables
+    - Template file not found
+    """
+
+    template_path: str = ""
+    template_error: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Template error in pack '{self.pack_name}': {self.template_error}"
+        if self.code == 0:
+            self.code = ERROR_PACK_TEMPLATE_ERROR
+        if not self.suggestion:
+            self.suggestion = "Check the Jinja2 template syntax and ensure all variables are defined."
+        self.context.update({
+            "template_path": self.template_path,
+            "template_error": self.template_error,
+        })
         super().__post_init__()

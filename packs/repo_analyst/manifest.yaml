@@ -1,0 +1,56 @@
+name: repo-analyst
+version: "1.0.0"
+description: |
+  Analyze GitHub repositories for health metrics, activity patterns,
+  and maintenance status. Uses public GitHub API (no auth required for public repos).
+author: Capsule Team
+license: MIT
+tags:
+  - github
+  - analysis
+  - repository
+  - metrics
+capsule_version: ">=0.2.0"
+
+tools_required:
+  - http.get
+
+yaml_entry: plans/default.yaml
+prompt_template: prompts/system.txt
+# policy.yaml is expected at pack root (convention)
+
+inputs:
+  repo_url:
+    type: string
+    required: true
+    pattern: "^https://github\\.com/[^/]+/[^/]+/?$"
+    description: GitHub repository URL (e.g., https://github.com/owner/repo)
+
+  include_sections:
+    type: array
+    required: false
+    default: ["overview", "activity", "contributors", "releases"]
+    description: |
+      Sections to include in the analysis:
+      - overview: Basic repo info, stars, forks, description
+      - activity: Commit activity, last commit date
+      - contributors: Top contributors, contributor count
+      - releases: Release history, latest version
+      - issues: Open issues count, labels
+      - security: Security advisories (if available)
+
+  output_format:
+    type: string
+    required: false
+    default: markdown
+    enum: [markdown, json, summary]
+    description: Output format for the analysis report
+
+outputs:
+  report:
+    type: string
+    description: Generated repository analysis report
+
+  metrics:
+    type: object
+    description: Raw metrics data (stars, forks, issues, etc.)

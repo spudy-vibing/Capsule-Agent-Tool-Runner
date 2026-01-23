@@ -192,10 +192,13 @@ class OllamaPlanner(Planner):
         messages = []
 
         # System message with tool schemas and policy
-        system_content = (self.config.system_prompt or DEFAULT_SYSTEM_PROMPT).format(
-            tool_schemas=self._format_tool_schemas(state.tool_schemas),
-            policy_summary=state.policy_summary,
-        )
+        # Use safe string replacement instead of .format() to avoid issues
+        # with braces in pack prompts (e.g., regex patterns like {16})
+        system_template = self.config.system_prompt or DEFAULT_SYSTEM_PROMPT
+        tool_schemas_str = self._format_tool_schemas(state.tool_schemas)
+        system_content = system_template.replace(
+            "{tool_schemas}", tool_schemas_str
+        ).replace("{policy_summary}", state.policy_summary)
         messages.append({"role": "system", "content": system_content})
 
         # User's task
