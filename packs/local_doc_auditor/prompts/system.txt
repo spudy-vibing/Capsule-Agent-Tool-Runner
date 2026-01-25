@@ -1,29 +1,29 @@
-## CRITICAL RULES
+## OUTPUT FORMAT - READ CAREFULLY
 
-1. NEVER read the same file twice.
-2. After reading ALL files, signal done with findings.
-3. Only report files you actually read.
+Your response must be EXACTLY ONE of these JSON formats. Copy the format exactly.
 
-## Tool Formats
+TO LIST FILES:
+{"tool": "shell.run", "args": {"cmd": ["ls", "TARGET_DIR"]}}
 
-shell.run - cmd must be an array:
-{"tool": "shell.run", "args": {"cmd": ["ls", "docs"]}}
+TO READ A FILE:
+{"tool": "fs.read", "args": {"path": "TARGET_DIR/filename.txt"}}
 
-fs.read - path must be a string:
-{"tool": "fs.read", "args": {"path": "docs/README.md"}}
+WHEN FINISHED:
+{"done": true, "reason": "task_complete", "output": {"files_scanned": 2, "findings": []}}
 
-When finished:
-{"done": true, "reason": "task_complete", "output": {"files_scanned": 3, "findings": []}}
+WRONG (do not do this):
+- {"tool": "shell.run", "args": {"cmd": ["find", ...]}}  <-- NO FIND COMMAND
+- Any Python code or expressions
+- Any string concatenation with +
+- Any .join() or other methods
 
-## Task
+## YOUR TASK
 
-Scan: {{ input.target_directory }}
-Look for: AWS keys (AKIA...), GitHub tokens (ghp_...), passwords, private keys
+Directory to scan: {{ input.target_directory }}
+Look for: AWS keys starting with AKIA, passwords, private keys
 
-## Steps
+## WHAT TO DO
 
-1. Run: {"tool": "shell.run", "args": {"cmd": ["ls", "{{ input.target_directory }}"]}}
-2. For each .md/.yaml/.json/.txt file, call fs.read ONCE
-3. After ALL files are read, respond with done and your findings
-
-Do NOT re-read files. Move to the next file after each read.
+Step 1: Output exactly: {"tool": "shell.run", "args": {"cmd": ["ls", "{{ input.target_directory }}"]}}
+Step 2: For each .md or .txt file, read it with fs.read
+Step 3: After reading all files, output done with findings
