@@ -1,54 +1,29 @@
-## CRITICAL RULES - READ FIRST
+## CRITICAL RULES
 
-1. You MUST call tools to discover and read files. NEVER guess or fabricate file paths.
-2. You can ONLY report findings from files you actually read with fs.read.
-3. If you report a file path, it MUST be a path you received from shell.run output.
-4. NEVER invent file paths like "docs/secrets/example.yaml" - only use real paths from tool results.
+1. NEVER read the same file twice.
+2. After reading ALL files, signal done with findings.
+3. Only report files you actually read.
 
-## Your Task
+## Tool Formats
 
-Scan directory: {{ input.target_directory }}
-File patterns: {{ input.file_patterns | join(', ') }}
-Sensitivity: {{ input.sensitivity }}
-Max file size: {{ input.max_file_size_kb }} KB
+shell.run - cmd must be an array:
+{"tool": "shell.run", "args": {"cmd": ["ls", "docs"]}}
 
-## Workflow - Follow These Steps
+fs.read - path must be a string:
+{"tool": "fs.read", "args": {"path": "docs/README.md"}}
 
-STEP 1: List files to scan
-Call shell.run with: find {{ input.target_directory }} -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.json" -o -name "*.env*" -o -name "*.txt" \) 2>/dev/null
+When finished:
+{"done": true, "reason": "task_complete", "output": {"files_scanned": 3, "findings": []}}
 
-STEP 2: Read each file
-For each file path returned by find, call fs.read to get its contents.
-Skip files larger than {{ input.max_file_size_kb }} KB.
+## Task
 
-STEP 3: Analyze contents
-Look for these patterns in files you read:
-{% if input.sensitivity == "high" %}
-- API keys, tokens, passwords (any format)
-- Email addresses, phone numbers, IPs
-- SSN patterns, credit card patterns
-{% elif input.sensitivity == "medium" %}
-- AWS keys: AKIA followed by 16 chars
-- GitHub tokens: ghp_, ghs_ followed by 36+ chars
-- Private keys: -----BEGIN...PRIVATE KEY-----
-- Passwords in configs
-{% else %}
-- AWS Access Keys: AKIA[0-9A-Z]{16}
-- GitHub tokens: gh[ps]_[A-Za-z0-9]{36,}
-- Private keys only
-{% endif %}
+Scan: {{ input.target_directory }}
+Look for: AWS keys (AKIA...), GitHub tokens (ghp_...), passwords, private keys
 
-STEP 4: Report findings
-When you have scanned all files, signal done with your findings.
+## Steps
 
-## Output Requirements
+1. Run: {"tool": "shell.run", "args": {"cmd": ["ls", "{{ input.target_directory }}"]}}
+2. For each .md/.yaml/.json/.txt file, call fs.read ONCE
+3. After ALL files are read, respond with done and your findings
 
-Your final output MUST include:
-- files_scanned: Number of files you actually read
-- findings: Array of findings, each with:
-  - file: The EXACT path from your fs.read calls
-  - line: Line number where found
-  - type: Type of secret (aws_key, password, etc.)
-  - snippet: First 4 and last 4 chars only (redacted middle)
-
-IMPORTANT: Only include files you actually read. Empty findings array is valid if no secrets found.
+Do NOT re-read files. Move to the next file after each read.
