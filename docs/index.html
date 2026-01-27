@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capsule | Secure Agent Runtime</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --neon-cyan: #00fff7;
+      --neon-green: #39ff14;
+      --neon-magenta: #ff00ff;
+      --dark-bg: #0a0a0f;
+      --card-bg: #12121a;
+      --card-border: #1e1e2e;
+      --text-primary: #e4e4e7;
+      --text-muted: #71717a;
+      --glow-cyan: 0 0 20px rgba(0, 255, 247, 0.4), 0 0 40px rgba(0, 255, 247, 0.2);
+      --glow-green: 0 0 20px rgba(57, 255, 20, 0.4), 0 0 40px rgba(57, 255, 20, 0.2);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--dark-bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    /* Animated grid background */
+    .grid-bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image:
+        linear-gradient(rgba(0, 255, 247, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 247, 0.03) 1px, transparent 1px);
+      background-size: 50px 50px;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    /* Scanline effect */
+    .scanlines {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.1) 0px,
+        rgba(0, 0, 0, 0.1) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+      pointer-events: none;
+      z-index: 1000;
+      opacity: 0.3;
+    }
+
+    /* Gradient orbs */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.4;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .orb-1 {
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, var(--neon-cyan) 0%, transparent 70%);
+      top: -200px;
+      right: -200px;
+      animation: float 20s ease-in-out infinite;
+    }
+
+    .orb-2 {
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, var(--neon-magenta) 0%, transparent 70%);
+      bottom: -150px;
+      left: -150px;
+      animation: float 25s ease-in-out infinite reverse;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(30px, -30px) scale(1.1); }
+    }
+
+    /* Navigation */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 1.5rem 3rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 100;
+      background: linear-gradient(to bottom, var(--dark-bg) 0%, transparent 100%);
+    }
+
+    .logo {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.5rem;
+      font-weight: 900;
+      color: var(--neon-cyan);
+      text-shadow: var(--glow-cyan);
+      letter-spacing: 2px;
+    }
+
+    .logo::before {
+      content: '[ ';
+      color: var(--text-muted);
+    }
+
+    .logo::after {
+      content: ' ]';
+      color: var(--text-muted);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .nav-links a:hover {
+      color: var(--neon-cyan);
+      text-shadow: var(--glow-cyan);
+    }
+
+    .nav-links a::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 0;
+      width: 0;
+      height: 1px;
+      background: var(--neon-cyan);
+      transition: width 0.3s ease;
+      box-shadow: var(--glow-cyan);
+    }
+
+    .nav-links a:hover::after {
+      width: 100%;
+    }
+
+    /* Hero Section */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 8rem 2rem 4rem;
+      text-align: center;
+      position: relative;
+    }
+
+    .capsule-icon {
+      width: 120px;
+      height: 200px;
+      border: 3px solid var(--neon-cyan);
+      border-radius: 60px;
+      position: relative;
+      margin-bottom: 3rem;
+      box-shadow: var(--glow-cyan), inset 0 0 30px rgba(0, 255, 247, 0.1);
+      animation: pulse 3s ease-in-out infinite;
+    }
+
+    .capsule-icon::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px;
+      height: 40px;
+      background: var(--neon-green);
+      border-radius: 50%;
+      box-shadow: var(--glow-green);
+      animation: glow 2s ease-in-out infinite alternate;
+    }
+
+    .capsule-icon::after {
+      content: '';
+      position: absolute;
+      top: 10%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 60%;
+      height: 1px;
+      background: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
+    }
+
+    @keyframes glow {
+      0% { opacity: 0.6; transform: translate(-50%, -50%) scale(0.9); }
+      100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+
+    h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(3rem, 8vw, 6rem);
+      font-weight: 900;
+      letter-spacing: 4px;
+      margin-bottom: 1.5rem;
+      position: relative;
+    }
+
+    h1 .glitch {
+      position: relative;
+      display: inline-block;
+    }
+
+    h1 .glitch::before,
+    h1 .glitch::after {
+      content: 'CAPSULE';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    h1 .glitch::before {
+      color: var(--neon-magenta);
+      animation: glitch-1 0.3s infinite linear alternate-reverse;
+      clip-path: polygon(0 0, 100% 0, 100% 35%, 0 35%);
+    }
+
+    h1 .glitch::after {
+      color: var(--neon-cyan);
+      animation: glitch-2 0.3s infinite linear alternate-reverse;
+      clip-path: polygon(0 65%, 100% 65%, 100% 100%, 0 100%);
+    }
+
+    @keyframes glitch-1 {
+      0% { transform: translate(0); }
+      20% { transform: translate(-2px, 2px); }
+      40% { transform: translate(-2px, -2px); }
+      60% { transform: translate(2px, 2px); }
+      80% { transform: translate(2px, -2px); }
+      100% { transform: translate(0); }
+    }
+
+    @keyframes glitch-2 {
+      0% { transform: translate(0); }
+      20% { transform: translate(2px, -2px); }
+      40% { transform: translate(2px, 2px); }
+      60% { transform: translate(-2px, -2px); }
+      80% { transform: translate(-2px, 2px); }
+      100% { transform: translate(0); }
+    }
+
+    .tagline {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin-bottom: 3rem;
+    }
+
+    .tagline strong {
+      color: var(--neon-green);
+      text-shadow: var(--glow-green);
+    }
+
+    /* Terminal preview */
+    .terminal {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 700px;
+      overflow: hidden;
+      margin: 2rem 0;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    .terminal-header {
+      background: #1a1a24;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red { background: #ff5f56; }
+    .terminal-dot.yellow { background: #ffbd2e; }
+    .terminal-dot.green { background: #27c93f; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .terminal-body {
+      padding: 1.5rem;
+      font-size: 0.875rem;
+      text-align: left;
+    }
+
+    .terminal-line {
+      margin-bottom: 0.5rem;
+      opacity: 0;
+      animation: typeIn 0.5s ease forwards;
+    }
+
+    .terminal-line:nth-child(1) { animation-delay: 0.5s; }
+    .terminal-line:nth-child(2) { animation-delay: 1s; }
+    .terminal-line:nth-child(3) { animation-delay: 1.5s; }
+    .terminal-line:nth-child(4) { animation-delay: 2s; }
+    .terminal-line:nth-child(5) { animation-delay: 2.5s; }
+
+    @keyframes typeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .prompt {
+      color: var(--neon-green);
+    }
+
+    .command {
+      color: var(--text-primary);
+    }
+
+    .output {
+      color: var(--text-muted);
+    }
+
+    .success {
+      color: var(--neon-green);
+    }
+
+    /* CTA Buttons */
+    .cta-group {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn {
+      padding: 1rem 2.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.875rem;
+      font-weight: 700;
+      text-decoration: none;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    .btn-primary {
+      background: var(--neon-cyan);
+      color: var(--dark-bg);
+      border: none;
+      box-shadow: var(--glow-cyan);
+    }
+
+    .btn-primary:hover {
+      background: #fff;
+      transform: translateY(-2px);
+      box-shadow: 0 0 30px rgba(0, 255, 247, 0.6), 0 0 60px rgba(0, 255, 247, 0.3);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text-primary);
+      border: 1px solid var(--card-border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--neon-cyan);
+      color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    /* Features Section */
+    .features {
+      padding: 8rem 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+
+    .section-header h2 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .section-header p {
+      color: var(--text-muted);
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 2rem;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.3s ease;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-5px);
+      border-color: var(--neon-cyan);
+      box-shadow: 0 20px 40px -20px rgba(0, 255, 247, 0.2);
+    }
+
+    .feature-card:hover::before {
+      transform: scaleX(1);
+    }
+
+    .feature-icon {
+      width: 50px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      background: rgba(0, 255, 247, 0.1);
+      margin-bottom: 1.5rem;
+      font-size: 1.5rem;
+    }
+
+    .feature-card h3 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.1rem;
+      margin-bottom: 0.75rem;
+      color: var(--neon-cyan);
+    }
+
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+
+    /* Code Example Section */
+    .code-section {
+      padding: 8rem 2rem;
+      background: linear-gradient(to bottom, transparent, rgba(0, 255, 247, 0.02), transparent);
+    }
+
+    .code-container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .code-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: -1px;
+    }
+
+    .code-tab {
+      padding: 0.75rem 1.5rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: all 0.2s ease;
+    }
+
+    .code-tab.active {
+      background: #1a1a24;
+      color: var(--neon-cyan);
+      border-color: var(--neon-cyan);
+      border-bottom-color: #1a1a24;
+    }
+
+    .code-block {
+      background: #1a1a24;
+      border: 1px solid var(--card-border);
+      border-radius: 0 12px 12px 12px;
+      padding: 2rem;
+      overflow-x: auto;
+    }
+
+    .code-block pre {
+      font-size: 0.875rem;
+      line-height: 1.8;
+    }
+
+    .code-block .keyword { color: var(--neon-magenta); }
+    .code-block .string { color: var(--neon-green); }
+    .code-block .comment { color: var(--text-muted); }
+    .code-block .variable { color: var(--neon-cyan); }
+
+    /* Agent Mode Section */
+    .agent-section {
+      padding: 8rem 2rem;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    .agent-card {
+      background: linear-gradient(135deg, var(--card-bg) 0%, rgba(0, 255, 247, 0.05) 100%);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 4rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .agent-card::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -50%;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle, rgba(0, 255, 247, 0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .agent-badge {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      background: rgba(57, 255, 20, 0.1);
+      border: 1px solid var(--neon-green);
+      border-radius: 20px;
+      color: var(--neon-green);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 1.5rem;
+    }
+
+    .agent-card h2 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 2rem;
+      margin-bottom: 1rem;
+    }
+
+    .agent-card > p {
+      color: var(--text-muted);
+      max-width: 600px;
+      margin-bottom: 2rem;
+    }
+
+    .agent-flow {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 3rem 0;
+    }
+
+    .flow-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .flow-icon {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: var(--card-bg);
+      border: 2px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      transition: all 0.3s ease;
+    }
+
+    .flow-step:hover .flow-icon {
+      border-color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    .flow-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .flow-arrow {
+      color: var(--neon-cyan);
+      font-size: 1.5rem;
+    }
+
+    /* Contributor Section */
+    .contributor-section {
+      padding: 8rem 2rem;
+      text-align: center;
+    }
+
+    .contributor-card {
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 3rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      position: relative;
+    }
+
+    .contributor-card::before {
+      content: 'CORE CONTRIBUTOR';
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 0.5rem 1.5rem;
+      background: var(--dark-bg);
+      border: 1px solid var(--neon-cyan);
+      border-radius: 20px;
+      font-size: 0.625rem;
+      letter-spacing: 3px;
+      color: var(--neon-cyan);
+      text-shadow: var(--glow-cyan);
+    }
+
+    .contributor-avatar {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      margin: 1rem auto 1.5rem;
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta));
+      padding: 3px;
+      position: relative;
+    }
+
+    .contributor-avatar img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      background: var(--card-bg);
+    }
+
+    .contributor-avatar::after {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 1px dashed var(--card-border);
+      animation: spin 20s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .contributor-name {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .contributor-role {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .contributor-links {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+    }
+
+    .contributor-link {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: all 0.3s ease;
+    }
+
+    .contributor-link:hover {
+      border-color: var(--neon-cyan);
+      color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    /* Footer */
+    footer {
+      padding: 4rem 2rem;
+      text-align: center;
+      border-top: 1px solid var(--card-border);
+    }
+
+    .footer-logo {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--neon-cyan);
+      text-shadow: var(--glow-cyan);
+      margin-bottom: 1rem;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: color 0.3s ease;
+    }
+
+    .footer-links a:hover {
+      color: var(--neon-cyan);
+    }
+
+    .footer-github {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem 2rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 50px;
+      color: var(--text-primary);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: all 0.3s ease;
+      margin-bottom: 2rem;
+    }
+
+    .footer-github:hover {
+      border-color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    .footer-github svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .copyright {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      nav {
+        padding: 1rem;
+      }
+
+      .nav-links {
+        display: none;
+      }
+
+      .hero {
+        padding: 6rem 1rem 3rem;
+      }
+
+      .capsule-icon {
+        width: 80px;
+        height: 140px;
+        margin-bottom: 2rem;
+      }
+
+      h1 {
+        letter-spacing: 2px;
+      }
+
+      .tagline {
+        font-size: 1rem;
+      }
+
+      .terminal {
+        margin: 1rem 0;
+      }
+
+      .cta-group {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .btn {
+        width: 100%;
+        max-width: 280px;
+        text-align: center;
+      }
+
+      .features, .code-section, .agent-section, .contributor-section {
+        padding: 4rem 1rem;
+      }
+
+      .agent-card {
+        padding: 2rem;
+      }
+
+      .flow-arrow {
+        display: none;
+      }
+
+      .agent-flow {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="scanlines"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+
+  <nav>
+    <div class="logo">CAPSULE</div>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#code">Quick Start</a></li>
+      <li><a href="#agent">Agent Mode</a></li>
+      <li><a href="https://github.com/spudy-vibing/Capsule---Agent-tool-runner" target="_blank">GitHub</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <div class="capsule-icon"></div>
+      <h1><span class="glitch">CAPSULE</span></h1>
+      <p class="tagline">
+        Local-first runtime for executing agent tool calls under <strong>strict policy controls</strong>.
+        The missing layer between LLM agents and safe, reproducible execution.
+      </p>
+
+      <div class="terminal">
+        <div class="terminal-header">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+          <span class="terminal-title">capsule - zsh</span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-line">
+            <span class="prompt">$ </span>
+            <span class="command">capsule run plan.yaml --policy policy.yaml</span>
+          </div>
+          <div class="terminal-line">
+            <span class="success">&#10003;</span>
+            <span class="output"> Run a1b2c3d4: completed</span>
+          </div>
+          <div class="terminal-line">
+            <span class="output">Total: 2 | Completed: 2 | Denied: 0 | Failed: 0</span>
+          </div>
+          <div class="terminal-line">
+            <span class="output">Duration: 15.3ms</span>
+          </div>
+          <div class="terminal-line">
+            <span class="prompt">$ </span>
+            <span class="command blink">_</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="cta-group">
+        <a href="https://github.com/spudy-vibing/Capsule---Agent-tool-runner" class="btn btn-primary" target="_blank">View on GitHub</a>
+        <a href="#code" class="btn btn-secondary">Get Started</a>
+      </div>
+    </section>
+
+    <section id="features" class="features">
+      <div class="section-header">
+        <h2>Core Features</h2>
+        <p>Everything you need for secure, auditable agent execution</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">&#128274;</div>
+          <h3>Deny-by-Default</h3>
+          <p>Everything is blocked unless explicitly allowed. Policies define precise boundaries for file, network, and shell operations.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">&#128220;</div>
+          <h3>Full Audit Logging</h3>
+          <p>All tool calls and results stored in SQLite with cryptographic hashes. Complete traceability for every operation.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">&#128257;</div>
+          <h3>Deterministic Replay</h3>
+          <p>Reproduce exact behavior from past executions. Debug issues and verify results with confidence.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">&#128200;</div>
+          <h3>Rich Reporting</h3>
+          <p>Timeline views and JSON export for analysis. Understand what happened at every step.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">&#128268;</div>
+          <h3>Extensible Tools</h3>
+          <p>Clean plugin architecture for adding new tools. Built-in support for fs, shell, and HTTP operations.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">&#129302;</div>
+          <h3>Dynamic Agent Mode</h3>
+          <p>Let a local LLM decide tool calls dynamically. Supports Ollama with multiple model options.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="code" class="code-section">
+      <div class="section-header">
+        <h2>Quick Start</h2>
+        <p>Up and running in 5 minutes</p>
+      </div>
+
+      <div class="code-container">
+        <div class="code-tabs">
+          <div class="code-tab active">Installation</div>
+        </div>
+        <div class="code-block">
+<pre><span class="comment"># Clone and install</span>
+<span class="variable">$</span> git clone https://github.com/spudy-vibing/Capsule---Agent-tool-runner.git
+<span class="variable">$</span> <span class="keyword">cd</span> capsule
+<span class="variable">$</span> pip install -e .
+
+<span class="comment"># Run a plan with policy enforcement</span>
+<span class="variable">$</span> capsule run plan.yaml --policy policy.yaml
+
+<span class="comment"># Or use dynamic agent mode with local LLM</span>
+<span class="variable">$</span> capsule agent run <span class="string">"List all Python files in src/"</span> \
+    --policy policy.yaml \
+    --model qwen2.5:7b \
+    --pretty</pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="agent" class="agent-section">
+      <div class="agent-card">
+        <span class="agent-badge">New in v0.2</span>
+        <h2>Dynamic Agent Mode</h2>
+        <p>
+          Let a local LLM automatically decide which tools to call based on your task description.
+          Describe what you want, and the agent figures out the steps - all under strict policy control.
+        </p>
+
+        <div class="agent-flow">
+          <div class="flow-step">
+            <div class="flow-icon">&#128172;</div>
+            <span class="flow-label">Task</span>
+          </div>
+          <span class="flow-arrow">&#8594;</span>
+          <div class="flow-step">
+            <div class="flow-icon">&#129302;</div>
+            <span class="flow-label">LLM</span>
+          </div>
+          <span class="flow-arrow">&#8594;</span>
+          <div class="flow-step">
+            <div class="flow-icon">&#128274;</div>
+            <span class="flow-label">Policy</span>
+          </div>
+          <span class="flow-arrow">&#8594;</span>
+          <div class="flow-step">
+            <div class="flow-icon">&#9881;</div>
+            <span class="flow-label">Execute</span>
+          </div>
+          <span class="flow-arrow">&#8594;</span>
+          <div class="flow-step">
+            <div class="flow-icon">&#10003;</div>
+            <span class="flow-label">Result</span>
+          </div>
+        </div>
+
+        <a href="https://github.com/spudy-vibing/Capsule---Agent-tool-runner#dynamic-agent-mode" class="btn btn-secondary" target="_blank">Learn More</a>
+      </div>
+    </section>
+
+    <section class="contributor-section">
+      <div class="section-header">
+        <h2>Built By</h2>
+      </div>
+
+      <div class="contributor-card">
+        <div class="contributor-avatar">
+          <img src="https://github.com/spudy-vibing.png" alt="Shubham Upadhyay" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%2312121a%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2255%22 font-size=%2240%22 text-anchor=%22middle%22 fill=%22%2300fff7%22>SU</text></svg>'">
+        </div>
+        <h3 class="contributor-name">Shubham Upadhyay</h3>
+        <p class="contributor-role">Creator & Maintainer</p>
+        <div class="contributor-links">
+          <a href="https://github.com/spudy-vibing" class="contributor-link" target="_blank" title="GitHub">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+          </a>
+          <a href="mailto:shubhamupadhyay1986@gmail.com" class="contributor-link" title="Email">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-logo">[ CAPSULE ]</div>
+
+    <div class="footer-links">
+      <a href="https://github.com/spudy-vibing/Capsule---Agent-tool-runner#readme">Documentation</a>
+      <a href="https://github.com/spudy-vibing/Capsule---Agent-tool-runner/issues">Issues</a>
+      <a href="https://github.com/spudy-vibing/Capsule---Agent-tool-runner/blob/main/LICENSE">License</a>
+    </div>
+
+    <a href="https://github.com/spudy-vibing/Capsule---Agent-tool-runner" class="footer-github" target="_blank">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+      github.com/spudy-vibing/Capsule---Agent-tool-runner
+    </a>
+
+    <p class="copyright">MIT License &copy; 2024 Shubham Upadhyay</p>
+  </footer>
+
+  <script>
+    // Smooth scrolling for navigation links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        document.querySelector(this.getAttribute('href')).scrollIntoView({
+          behavior: 'smooth'
+        });
+      });
+    });
+
+    // Intersection Observer for scroll animations
+    const observerOptions = {
+      threshold: 0.1,
+      rootMargin: '0px 0px -50px 0px'
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+        }
+      });
+    }, observerOptions);
+
+    document.querySelectorAll('.feature-card, .agent-card, .contributor-card').forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(30px)';
+      el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+      observer.observe(el);
+    });
+  </script>
+</body>
+</html>
