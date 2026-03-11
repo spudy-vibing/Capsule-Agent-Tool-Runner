@@ -113,11 +113,29 @@ CREATE TABLE IF NOT EXISTS planner_proposals (
     FOREIGN KEY (run_id) REFERENCES runs(run_id)
 );
 
+-- Eval runs table: evaluation results
+CREATE TABLE IF NOT EXISTS eval_runs (
+    eval_id TEXT PRIMARY KEY,
+    pack_name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    total_cases INTEGER NOT NULL,
+    passed_cases INTEGER NOT NULL,
+    failed_cases INTEGER NOT NULL,
+    skipped_cases INTEGER NOT NULL,
+    score REAL,
+    score_breakdown_json TEXT,
+    results_json TEXT NOT NULL,
+    duration_seconds REAL NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_tool_calls_run_id ON tool_calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_tool_results_run_id ON tool_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at);
 CREATE INDEX IF NOT EXISTS idx_planner_proposals_run_id ON planner_proposals(run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_pack_name ON eval_runs(pack_name);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_created_at ON eval_runs(created_at);
 """
 
 
@@ -791,6 +809,177 @@ class CapsuleDB:
         except sqlite3.Error as e:
             raise StorageReadError(
                 operation="get_proposals_for_run",
+                underlying_error=str(e),
+            ) from e
+
+    # =========================================================================
+    # Utility Operations
+    # =========================================================================
+
+    # =========================================================================
+    # Eval Run Operations
+    # =========================================================================
+
+    def record_eval_run(
+        self,
+        pack_name: str,
+        category: str,
+        total_cases: int,
+        passed_cases: int,
+        failed_cases: int,
+        skipped_cases: int,
+        score: float | None,
+        score_breakdown: dict[str, float] | None,
+        results_json: str,
+        duration_seconds: float,
+    ) -> str:
+        """
+        Record an evaluation run.
+
+        Args:
+            pack_name: Name of the pack evaluated
+            category: Eval category (deterministic, planner, all)
+            total_cases: Total test cases
+            passed_cases: Passed test cases
+            failed_cases: Failed test cases
+            skipped_cases: Skipped test cases
+            score: Overall score (0-1)
+            score_breakdown: Per-category scores
+            results_json: JSON-serialized results
+            duration_seconds: Total duration
+
+        Returns:
+            Generated eval_id
+        """
+        eval_id = generate_id()
+        score_breakdown_json = (
+            json.dumps(score_breakdown) if score_breakdown else None
+        )
+
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO eval_runs (
+                    eval_id, pack_name, category, total_cases,
+                    passed_cases, failed_cases, skipped_cases,
+                    score, score_breakdown_json, results_json,
+                    duration_seconds, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    eval_id,
+                    pack_name,
+                    category,
+                    total_cases,
+                    passed_cases,
+                    failed_cases,
+                    skipped_cases,
+                    score,
+                    score_breakdown_json,
+                    results_json,
+                    duration_seconds,
+                    now_iso(),
+                ),
+            )
+            self._conn.commit()
+            return eval_id
+        except sqlite3.Error as e:
+            raise StorageWriteError(
+                operation="record_eval_run",
+                underlying_error=str(e),
+            ) from e
+
+    def get_eval_run(self, eval_id: str) -> dict[str, Any] | None:
+        """
+        Get an eval run by ID.
+
+        Args:
+            eval_id: The eval ID to look up
+
+        Returns:
+            Dict with eval run data, or None if not found
+        """
+        try:
+            cursor = self._conn.execute(
+                "SELECT * FROM eval_runs WHERE eval_id = ?",
+                (eval_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+
+            return {
+                "eval_id": row["eval_id"],
+                "pack_name": row["pack_name"],
+                "category": row["category"],
+                "total_cases": row["total_cases"],
+                "passed_cases": row["passed_cases"],
+                "failed_cases": row["failed_cases"],
+                "skipped_cases": row["skipped_cases"],
+                "score": row["score"],
+                "score_breakdown": (
+                    json.loads(row["score_breakdown_json"])
+                    if row["score_breakdown_json"]
+                    else None
+                ),
+                "results": json.loads(row["results_json"]),
+                "duration_seconds": row["duration_seconds"],
+                "created_at": row["created_at"],
+            }
+        except sqlite3.Error as e:
+            raise StorageReadError(
+                operation="get_eval_run",
+                underlying_error=str(e),
+            ) from e
+
+    def list_eval_runs(
+        self, pack_name: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """
+        List eval runs, optionally filtered by pack name.
+
+        Args:
+            pack_name: Filter by pack name (optional)
+            limit: Maximum number of results
+
+        Returns:
+            List of eval run dicts, most recent first
+        """
+        try:
+            if pack_name:
+                cursor = self._conn.execute(
+                    "SELECT * FROM eval_runs WHERE pack_name = ? ORDER BY created_at DESC LIMIT ?",
+                    (pack_name, limit),
+                )
+            else:
+                cursor = self._conn.execute(
+                    "SELECT * FROM eval_runs ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                )
+
+            results = []
+            for row in cursor:
+                results.append({
+                    "eval_id": row["eval_id"],
+                    "pack_name": row["pack_name"],
+                    "category": row["category"],
+                    "total_cases": row["total_cases"],
+                    "passed_cases": row["passed_cases"],
+                    "failed_cases": row["failed_cases"],
+                    "skipped_cases": row["skipped_cases"],
+                    "score": row["score"],
+                    "score_breakdown": (
+                        json.loads(row["score_breakdown_json"])
+                        if row["score_breakdown_json"]
+                        else None
+                    ),
+                    "duration_seconds": row["duration_seconds"],
+                    "created_at": row["created_at"],
+                })
+            return results
+        except sqlite3.Error as e:
+            raise StorageReadError(
+                operation="list_eval_runs",
                 underlying_error=str(e),
             ) from e
 

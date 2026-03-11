@@ -76,6 +76,11 @@ ERROR_PACK_INVALID_INPUT = 7004
 ERROR_PACK_TOOL_NOT_AVAILABLE = 7005
 ERROR_PACK_TEMPLATE_ERROR = 7006
 
+# Eval errors: 8xxx
+ERROR_EVAL_SUITE_NOT_FOUND = 8001
+ERROR_EVAL_INVALID_SUITE = 8002
+ERROR_EVAL_PLANNER_REQUIRED = 8004
+
 
 # =============================================================================
 # Base Exception
@@ -969,4 +974,86 @@ class PackTemplateError(PackError):
             "template_path": self.template_path,
             "template_error": self.template_error,
         })
+        super().__post_init__()
+
+
+# =============================================================================
+# Eval Errors
+# =============================================================================
+
+
+@dataclass
+class EvalError(CapsuleError):
+    """
+    Base class for all eval-related errors.
+
+    Eval errors occur when loading, running, or scoring evaluation suites.
+
+    Attributes:
+        pack_name: Name of the pack being evaluated
+        pack_path: Path to the pack directory (if known)
+    """
+
+    pack_name: str = ""
+    pack_path: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        self.context.update({
+            "pack_name": self.pack_name,
+            "pack_path": self.pack_path,
+        })
+
+
+@dataclass
+class EvalSuiteNotFoundError(EvalError):
+    """Raised when no evals/test_cases.yaml exists in a pack."""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"No eval suite found for pack '{self.pack_name}'"
+        if self.code == 0:
+            self.code = ERROR_EVAL_SUITE_NOT_FOUND
+        if not self.suggestion:
+            self.suggestion = (
+                "Create an evals/test_cases.yaml file in the pack directory.\n"
+                "See docs/pack_authoring.md for the test case format."
+            )
+        super().__post_init__()
+
+
+@dataclass
+class EvalInvalidSuiteError(EvalError):
+    """Raised when test_cases.yaml fails Pydantic validation."""
+
+    validation_error: str = ""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Invalid eval suite for pack '{self.pack_name}': {self.validation_error}"
+        if self.code == 0:
+            self.code = ERROR_EVAL_INVALID_SUITE
+        if not self.suggestion:
+            self.suggestion = "Check evals/test_cases.yaml for syntax errors and required fields."
+        self.context["validation_error"] = self.validation_error
+        super().__post_init__()
+
+
+@dataclass
+class EvalPlannerRequiredError(EvalError):
+    """Raised when planner tests are requested but no planner is available."""
+
+    def __post_init__(self) -> None:
+        """Set defaults after dataclass init."""
+        if not self.message:
+            self.message = f"Planner required to run eval tests for pack '{self.pack_name}'"
+        if self.code == 0:
+            self.code = ERROR_EVAL_PLANNER_REQUIRED
+        if not self.suggestion:
+            self.suggestion = (
+                "Start Ollama: `ollama serve`\n"
+                "Use --category deterministic to run only policy tests."
+            )
         super().__post_init__()
