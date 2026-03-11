@@ -106,15 +106,37 @@ class PackLoader:
 
     @classmethod
     def _get_bundled_packs_dir(cls) -> Path:
-        """Get the path to bundled packs directory."""
+        """Get the path to bundled packs directory.
+
+        Resolution order:
+        1. Explicit override via BUNDLED_PACKS_DIR class variable
+        2. Development layout: project_root/packs/ (relative to this file)
+        3. Installed package: importlib.resources fallback
+        """
         if cls.BUNDLED_PACKS_DIR is not None:
             return cls.BUNDLED_PACKS_DIR
 
-        # Default: packs/ directory at project root (relative to this file)
+        # Development layout: packs/ directory at project root
         # src/capsule/pack/loader.py -> packs/
         module_dir = Path(__file__).resolve().parent
         project_root = module_dir.parent.parent.parent
-        return project_root / "packs"
+        dev_packs = project_root / "packs"
+        if dev_packs.exists():
+            return dev_packs
+
+        # Installed package: use importlib.resources
+        try:
+            import importlib.resources as pkg_resources
+
+            ref = pkg_resources.files("packs")
+            packs_path = Path(str(ref))
+            if packs_path.exists():
+                return packs_path
+        except (ImportError, ModuleNotFoundError, TypeError):
+            pass
+
+        # Fallback to dev layout path even if it doesn't exist
+        return dev_packs
 
     @classmethod
     def resolve_pack(cls, name: str) -> PackLoader:

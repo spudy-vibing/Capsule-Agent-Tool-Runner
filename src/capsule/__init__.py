@@ -14,7 +14,7 @@ Example usage:
     $ capsule report <run_id>
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0b1"
 __author__ = "Capsule Contributors"
 
 # Public API will be exposed here as modules are implemented
