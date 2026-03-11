@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-beta.1] - 2026-03-10
+
+### Added
+
+#### Eval Harness
+- **Evaluation framework** for systematic pack testing with `capsule eval run`
+- **Deterministic tests**: Policy injection tests that run without an LLM (CI-safe)
+- **Planner tests**: Full agent loop tests using Ollama
+- **Weighted scoring**: Configurable score breakdown by metric category
+- **Eval DB storage**: Persist eval results in SQLite for tracking over time
+- **CLI commands**: `capsule eval run`, `capsule eval score`, `capsule eval list`
+- **Test cases**: Bundled eval suites for `local-doc-auditor` and `repo-analyst` packs
+
+#### Distribution
+- **PyPI packaging**: Install via `pip install capsule-run`
+- **importlib.resources fallback**: Bundled packs work correctly when installed via pip
+- **GitHub Actions publish workflow**: Automated PyPI publishing on release tags
+- **Pack authoring guide**: Documentation for creating packs with eval test cases
+
+### Changed
+- Package name changed from `capsule` to `capsule-run` for PyPI
+- Version bumped to `0.2.0b1`
+
 ## [0.1.0] - 2025-01-20
 
 ### Added
@@ -67,5 +90,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type checking with mypy
 - Linting with ruff
 
-[Unreleased]: https://github.com/capsule-dev/capsule/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/capsule-dev/capsule/compare/v0.2.0b1...HEAD
+[0.2.0-beta.1]: https://github.com/capsule-dev/capsule/compare/v0.1.0...v0.2.0b1
 [0.1.0]: https://github.com/capsule-dev/capsule/releases/tag/v0.1.0

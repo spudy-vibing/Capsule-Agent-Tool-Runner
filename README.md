@@ -17,7 +17,10 @@ Capsule serves as the missing layer between "LLM agent frameworks" and "safe, re
 ### Installation
 
 ```bash
-# Install from source
+# Install from PyPI
+pip install capsule-run
+
+# Or install from source
 git clone https://github.com/capsule-dev/capsule.git
 cd capsule
 pip install -e .
@@ -440,6 +443,37 @@ planner.close()
 
 ---
 
+## Eval Harness
+
+Capsule includes an evaluation framework for testing packs systematically. Packs ship with test cases in `evals/test_cases.yaml`.
+
+```bash
+# Run deterministic tests (no LLM needed, CI-safe)
+capsule eval run local-doc-auditor --category deterministic
+
+# Run all tests (planner tests need Ollama)
+capsule eval run local-doc-auditor --category all --model qwen2.5:7b
+
+# Save results and view later
+capsule eval run local-doc-auditor --db capsule.db --category deterministic
+capsule eval list --db capsule.db
+capsule eval score <eval_id> --db capsule.db
+```
+
+Example output:
+```
+Eval: local-doc-auditor (deterministic)
+
+  #  Name                        Result  Duration
+  1  blocks_read_outside_target  PASS    2ms
+
+Summary: 1/1 passed (100%) | Score: 1.00 | Duration: 2ms
+```
+
+See [Pack Authoring Guide](docs/pack_authoring.md) for writing test cases and scoring.
+
+---
+
 ## CLI Reference
 
 | Command | Description |
@@ -449,6 +483,9 @@ planner.close()
 | `capsule report <run_id> [--format json]` | Generate a report for a run |
 | `capsule list-runs` | List all recorded runs |
 | `capsule show-run <run_id>` | Show details of a specific run |
+| `capsule eval run <pack>` | Run evaluation suite for a pack |
+| `capsule eval score <eval_id>` | Display score breakdown for a previous eval |
+| `capsule eval list` | List previous eval runs |
 
 ### Common Options
 
@@ -632,6 +669,7 @@ ruff format src tests
 ## Documentation
 
 - [Architecture](docs/architecture.md) - System architecture
+- [Pack Authoring](docs/pack_authoring.md) - Creating packs with eval test cases
 - [Threat Model](docs/threat_model.md) - Security threat analysis and mitigations
 - [Requirements (v0.1)](docs/archive/v0.1/requirements_v0.1.md) - Product requirements (Archived)
 - [Implementation Plan (v0.1)](docs/archive/v0.1/implementation_plan.md) - Technical design (Archived)
