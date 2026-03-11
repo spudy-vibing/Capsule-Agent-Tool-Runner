@@ -1952,5 +1952,324 @@ REMEMBER: Respond with ONLY valid JSON. Your response must start with {{ and end
         raise typer.Exit(code=1)
 
 
+# =============================================================================
+# Eval Commands
+# =============================================================================
+
+eval_app = typer.Typer(
+    name="eval",
+    help="Run and manage pack evaluations.",
+    no_args_is_help=True,
+)
+app.add_typer(eval_app, name="eval")
+
+
+@eval_app.command("run")
+def eval_run(
+    pack_name: Annotated[
+        str,
+        typer.Argument(help="Pack name or path to pack directory."),
+    ],
+    category: Annotated[
+        str,
+        typer.Option("--category", "-c", help="Test category: deterministic, planner, or all."),
+    ] = "all",
+    model: Annotated[
+        str,
+        typer.Option("--model", help="Model name for planner tests."),
+    ] = "qwen2.5:0.5b",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output in JSON format."),
+    ] = False,
+    db_path: Annotated[
+        Optional[Path],
+        typer.Option("--db", help="Path to SQLite database for storing results."),
+    ] = None,
+) -> None:
+    """Run evaluation suite for a pack."""
+    from capsule.pack.eval import EvalHarness
+
+    try:
+        harness = EvalHarness()
+        suite = harness.load_suite(pack_name)
+
+        # Set up planner if needed for planner tests
+        planner = None
+        if category in ("planner", "all"):
+            try:
+                from capsule.planner.ollama import OllamaConfig, OllamaPlanner
+
+                ollama_config = OllamaConfig(model=model)
+                planner = OllamaPlanner(ollama_config)
+                ok, msg = planner.check_connection()
+                if not ok:
+                    planner = None
+                    if category == "planner":
+                        if not json_output:
+                            console.print(f"[red]Planner not available: {msg}[/red]")
+                        raise typer.Exit(code=1)
+            except ImportError:
+                planner = None
+
+        result = harness.run_suite(suite, category=category, planner=planner)
+
+        # Store in DB if requested
+        eval_id = None
+        if db_path:
+            from capsule.store.db import CapsuleDB
+
+            results_data = []
+            for r in result.results:
+                checks_data = [
+                    {
+                        "check_type": c.check_type,
+                        "passed": c.passed,
+                        "expected": c.expected,
+                        "actual": c.actual,
+                        "message": c.message,
+                    }
+                    for c in r.checks
+                ]
+                results_data.append({
+                    "name": r.name,
+                    "passed": r.passed,
+                    "category": r.category,
+                    "checks": checks_data,
+                    "duration_seconds": r.duration_seconds,
+                    "error": r.error,
+                })
+
+            with CapsuleDB(db_path) as db:
+                eval_id = db.record_eval_run(
+                    pack_name=result.pack_name,
+                    category=category,
+                    total_cases=result.total,
+                    passed_cases=result.passed,
+                    failed_cases=result.failed,
+                    skipped_cases=result.skipped,
+                    score=result.score,
+                    score_breakdown=result.score_breakdown,
+                    results_json=json.dumps(results_data),
+                    duration_seconds=result.duration_seconds,
+                )
+
+        if json_output:
+            output = {
+                "pack_name": result.pack_name,
+                "category": category,
+                "total": result.total,
+                "passed": result.passed,
+                "failed": result.failed,
+                "skipped": result.skipped,
+                "score": result.score,
+                "score_breakdown": result.score_breakdown,
+                "duration_seconds": round(result.duration_seconds, 3),
+                "results": [
+                    {
+                        "name": r.name,
+                        "passed": r.passed,
+                        "category": r.category,
+                        "duration_seconds": round(r.duration_seconds, 3),
+                        "error": r.error,
+                        "checks": [
+                            {
+                                "check_type": c.check_type,
+                                "passed": c.passed,
+                                "expected": c.expected,
+                                "actual": c.actual,
+                            }
+                            for c in r.checks
+                        ],
+                    }
+                    for r in result.results
+                ],
+            }
+            if eval_id:
+                output["eval_id"] = eval_id
+            print(json.dumps(output, indent=2))
+        else:
+            console.print(f"\n[bold]Eval: {result.pack_name}[/bold] ({category})\n")
+
+            table = Table(show_header=True, header_style="bold")
+            table.add_column("#", style="dim", width=4)
+            table.add_column("Name", min_width=30)
+            table.add_column("Result", width=6)
+            table.add_column("Duration", width=10)
+
+            for i, r in enumerate(result.results, 1):
+                if r.error and "Skipped" in r.error:
+                    status = "[yellow]SKIP[/yellow]"
+                elif r.passed:
+                    status = "[green]PASS[/green]"
+                else:
+                    status = "[red]FAIL[/red]"
+
+                duration_ms = r.duration_seconds * 1000
+                duration_str = f"{duration_ms:.0f}ms" if duration_ms < 1000 else f"{r.duration_seconds:.1f}s"
+
+                table.add_row(str(i), r.name, status, duration_str)
+
+            console.print(table)
+
+            duration_ms = result.duration_seconds * 1000
+            duration_str = f"{duration_ms:.0f}ms" if duration_ms < 1000 else f"{result.duration_seconds:.1f}s"
+
+            console.print(
+                f"\nSummary: {result.passed}/{result.total} passed "
+                f"({result.passed * 100 // result.total if result.total else 0}%) "
+                f"| Score: {result.score:.2f} "
+                f"| Duration: {duration_str}"
+            )
+
+            if eval_id:
+                console.print(f"[dim]Eval ID: {eval_id}[/dim]")
+
+        # Close planner if created
+        if planner is not None and hasattr(planner, "close"):
+            planner.close()
+
+        raise typer.Exit(code=0 if result.failed == 0 else 1)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("eval_run_error", str(e), False)
+        else:
+            console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@eval_app.command("score")
+def eval_score(
+    eval_id: Annotated[
+        str,
+        typer.Argument(help="Eval run ID to display score for."),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output in JSON format."),
+    ] = False,
+    db_path: Annotated[
+        Path,
+        typer.Option("--db", help="Path to SQLite database."),
+    ] = Path("capsule.db"),
+) -> None:
+    """Display score breakdown for a previous eval run."""
+    from capsule.store.db import CapsuleDB
+
+    try:
+        with CapsuleDB(db_path) as db:
+            run = db.get_eval_run(eval_id)
+
+        if run is None:
+            if json_output:
+                _output_json_error("eval_not_found", f"Eval run '{eval_id}' not found", False)
+            else:
+                console.print(f"[red]Eval run '{eval_id}' not found.[/red]")
+            raise typer.Exit(code=1)
+
+        if json_output:
+            print(json.dumps(run, indent=2))
+        else:
+            console.print(f"\n[bold]Eval Score: {run['pack_name']}[/bold]")
+            console.print(f"[dim]ID: {run['eval_id']} | Category: {run['category']} | {run['created_at']}[/dim]\n")
+
+            console.print(f"  Total:   {run['total_cases']}")
+            console.print(f"  Passed:  [green]{run['passed_cases']}[/green]")
+            console.print(f"  Failed:  [red]{run['failed_cases']}[/red]")
+            console.print(f"  Skipped: [yellow]{run['skipped_cases']}[/yellow]")
+            console.print(f"  Score:   [bold]{run['score']:.3f}[/bold]")
+            console.print(f"  Duration: {run['duration_seconds']:.3f}s\n")
+
+            if run["score_breakdown"]:
+                console.print("[bold]Score Breakdown:[/bold]")
+                for category, score in run["score_breakdown"].items():
+                    bar_width = int(score * 20)
+                    bar = "█" * bar_width + "░" * (20 - bar_width)
+                    console.print(f"  {category:<25} {bar} {score:.3f}")
+
+        raise typer.Exit(code=0)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("eval_score_error", str(e), False)
+        else:
+            console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@eval_app.command("list")
+def eval_list(
+    pack_filter: Annotated[
+        Optional[str],
+        typer.Option("--pack", help="Filter by pack name."),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="Maximum number of results."),
+    ] = 100,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output in JSON format."),
+    ] = False,
+    db_path: Annotated[
+        Path,
+        typer.Option("--db", help="Path to SQLite database."),
+    ] = Path("capsule.db"),
+) -> None:
+    """List previous eval runs."""
+    from capsule.store.db import CapsuleDB
+
+    try:
+        with CapsuleDB(db_path) as db:
+            runs = db.list_eval_runs(pack_name=pack_filter, limit=limit)
+
+        if json_output:
+            print(json.dumps({"eval_runs": runs, "count": len(runs)}, indent=2))
+        else:
+            if not runs:
+                console.print("[dim]No eval runs found.[/dim]")
+                raise typer.Exit(code=0)
+
+            console.print(f"\n[bold]Eval Runs ({len(runs)})[/bold]\n")
+
+            table = Table(show_header=True, header_style="bold")
+            table.add_column("ID", width=10)
+            table.add_column("Pack", min_width=20)
+            table.add_column("Category", width=15)
+            table.add_column("Result", width=12)
+            table.add_column("Score", width=8)
+            table.add_column("Date", width=20)
+
+            for run in runs:
+                result_str = f"[green]{run['passed_cases']}[/green]/[red]{run['failed_cases']}[/red]/{run['total_cases']}"
+                score_str = f"{run['score']:.2f}" if run["score"] is not None else "N/A"
+                table.add_row(
+                    run["eval_id"],
+                    run["pack_name"],
+                    run["category"],
+                    result_str,
+                    score_str,
+                    run["created_at"][:19],
+                )
+
+            console.print(table)
+
+        raise typer.Exit(code=0)
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        if json_output:
+            _output_json_error("eval_list_error", str(e), False)
+        else:
+            console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()
